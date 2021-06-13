@@ -43,8 +43,8 @@ class pretrained_Tknzr(Tknzr_char):
         self.cls_tkid = self.pretrained_tknzr.cls_token_id
         self.unk_tk = self.pretrained_tknzr.unk_token
         self.unk_tkid = self.pretrained_tknzr.unk_token_id
-        self.msk_tk = self.pretrained_tknzr.mask_token
-        self.msk_tkid = self.pretrained_tknzr.mask_token_id
+        self.mask_tk = self.pretrained_tknzr.mask_token
+        self.mask_tkid = self.pretrained_tknzr.mask_token_id
 
     def save(self, exp_name: str) -> None:
         file_dir = os.path.join(util.path.EXP_PATH, exp_name)

@@ -41,6 +41,8 @@ class Seq2SeqNewsDataset(torch.utils.data.Dataset):
             self.titles.append(title)
             self.articles.append(article)
 
+        conn.close()
+
     def __getitem__(self, index: int):
         return self.titles[index], self.articles[index]
 

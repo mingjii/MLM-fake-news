@@ -45,8 +45,8 @@ class Tknzr_char:
     pad_tkid: ClassVar[int] = 2
     unk_tk: ClassVar[str] = '<unk>'
     unk_tkid: ClassVar[int] = 3
-    msk_tk: ClassVar[str] = '<mask>'
-    msk_tkid: ClassVar[int] = 4
+    mask_tk: ClassVar[str] = '<mask>'
+    mask_tkid: ClassVar[int] = 4
 
     def __init__(
             self,
@@ -77,7 +77,7 @@ class Tknzr_char:
                 (self.__class__.sep_tk, self.__class__.sep_tkid),
                 (self.__class__.pad_tk, self.__class__.pad_tkid),
                 (self.__class__.unk_tk, self.__class__.unk_tkid),
-                (self.__class__.msk_tk, self.__class__.msk_tkid),
+                (self.__class__.mask_tk, self.__class__.mask_tkid),
             ]:
                 self.tk2id[tk] = tkid
                 self.id2tk[tkid] = tk

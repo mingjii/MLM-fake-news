@@ -23,7 +23,7 @@ class baseModel(nn.Module):
             **kwargs: Optional[Dict],
     ):
         super().__init__()
-        self.msk_id = tknzr.msk_tkid
+        self.msk_id = tknzr.mask_tkid
 
         self.emb_lyr = nn.Embedding(
             num_embeddings=tknzr.vocab_size(),

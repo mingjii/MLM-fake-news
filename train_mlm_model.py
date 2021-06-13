@@ -135,7 +135,7 @@ def main():
 
             # shape: (B, S)
             batch_msk_seq = [
-                [tknzr.msk_tkid
+                [tknzr.mask_tkid
                     if (token not in ignore_tkids) and (random.random() <= 0.15)
                     else token
                     for token in data

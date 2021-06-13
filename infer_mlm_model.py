@@ -64,7 +64,7 @@ def main():
 
     # shape: (B, S)
     batch_msk_seq = [
-        [tknzr.msk_tkid
+        [tknzr.mask_tkid
             if (token not in ignore_tkids) and (random.random() <= 0.15)
             else token
             for token in data
@@ -98,7 +98,7 @@ def main():
     )
     print(f"batch_pred_tkid: {batch_pred_tkid.shape}")
     print(batch_msk_seq.type(), batch_msk_seq.device)
-    mask = batch_msk_seq == tknzr.msk_tkid
+    mask = batch_msk_seq == tknzr.mask_tkid
     mask = mask.to(device)
     print(mask.type())
     print(mask.device)

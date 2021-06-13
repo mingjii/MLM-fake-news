@@ -8,6 +8,8 @@ torch = "*"
 tqdm = "*"
 transformers = "*"
 tensorboard = "*"
+matplotlib = "*"
+seaborn = "*"
 
 [dev-packages]
 autopep8 = "*"
