@@ -10,7 +10,7 @@ import util.path
 import util.cfg
 import util.seed
 from model import MODEL_OPT
-from dataset import DSET_OPT
+from dataset.mlm import MLMDataset
 from tokenizer import TKNZR_OPT
 
 
@@ -18,24 +18,21 @@ def main():
     # Parse CLI arguments.
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True, type=str)
-    parser.add_argument('--data', required=True, type=str)
-    parser.add_argument('--tknzr_exp_name', required=True, type=str)
-    parser.add_argument('--tknzr_type', required=True, type=str)
     parser.add_argument('--exp_name', required=True, type=str)
+    parser.add_argument('--dataset_exp_name', required=True, type=str)
     parser.add_argument('--batch_size', required=True, type=int)
     parser.add_argument('--lr', required=True, type=float)
     parser.add_argument('--max_seq_len', required=True, type=int)
     parser.add_argument('--n_hid_lyr', required=True, type=int)
     parser.add_argument('--n_epoch', required=True, type=int)
+    parser.add_argument('--n_head', required=True, type=int)
     parser.add_argument('--n_sample', required=True, type=int)
-    parser.add_argument('--d_emb', required=True, type=int)
+    parser.add_argument('--d_ff', required=True, type=int)
     parser.add_argument('--d_hid', required=True, type=int)
-    parser.add_argument('--p_emb', required=True, type=float)
     parser.add_argument('--p_hid', required=True, type=float)
     parser.add_argument('--ckpt_step', required=True, type=int)
     parser.add_argument('--log_step', required=True, type=int)
     parser.add_argument('--seed', required=True, type=int)
-    parser.add_argument('--dset', required=True, type=str)
     parser.add_argument('--beta1', required=True, type=float)
     parser.add_argument('--beta2', required=True, type=float)
     parser.add_argument('--eps', required=True, type=float)
@@ -49,19 +46,32 @@ def main():
     # Random seed initialization.
     util.seed.set_seed(seed=args.seed)
 
-    # Load dataset.
-    dset = DSET_OPT[args.dset](args.data, args.n_sample)
+    # Load dataset and dataset config.
+    dset = MLMDataset(exp_name=args.dataset_exp_name, n_sample=args.n_sample)
+    dset_cfg = util.cfg.load(exp_name=args.dataset_exp_name)
+
+    def collate_fn(batch):
+        batch_mask_tkids = []
+        batch_target_tkids = []
+        batch_is_mask = []
+        for mask_tkids, target_tkids, is_mask in batch:
+            batch_mask_tkids.append(mask_tkids)
+            batch_target_tkids.append(target_tkids)
+            batch_is_mask.append(is_mask)
+
+        return batch_mask_tkids, batch_target_tkids, batch_is_mask
 
     # Create data loader.
     dldr = torch.utils.data.DataLoader(
         dset,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=len(os.sched_getaffinity(0)),
+        collate_fn=collate_fn,
     )
 
-    # Load tokenizer.
-    tknzr = TKNZR_OPT[args.tknzr_type].load(exp_name=args.tknzr_exp_name)
+    # Load tokenizer and config.
+    tknzr_cfg = util.cfg.load(exp_name=dset_cfg.tknzr_exp_name)
+    tknzr = TKNZR_OPT[tknzr_cfg.tknzr].load(exp_name=tknzr_cfg.exp_name)
 
     device = torch.device('cpu')
     if torch.cuda.is_available():
@@ -114,41 +124,21 @@ def main():
     # Global optimization step.
     step = 0
 
-    ignore_tkids = [tknzr.cls_tkid, tknzr.sep_tkid, tknzr.pad_tkid]
     for epoch in range(args.n_epoch):
         tqdm_dldr = tqdm(
             dldr,
             desc=f'epoch: {epoch}, loss: {pre_avg_loss:.6f}',
         )
-        for batch_title, batch_content in tqdm_dldr:
-            batch_seq = [
-                title +
-                tknzr.sep_tk +
-                content for title,
-                content in zip(
-                    batch_title,
-                    batch_content)]
-
-            # shape: (B, S)
-            batch_seq = tknzr.batch_enc(
-                batch_seq, max_seq_len=args.max_seq_len)
-
-            # shape: (B, S)
-            batch_msk_seq = [
-                [tknzr.mask_tkid
-                    if (token not in ignore_tkids) and (random.random() <= 0.15)
-                    else token
-                    for token in data
-                 ]
-                for data in batch_seq
-            ]
-
-            batch_seq = torch.LongTensor(batch_seq).to(device)
-            batch_msk_seq = torch.LongTensor(batch_msk_seq).to(device)
+        for batch_mask_tkids, batch_target_tkids, batch_is_mask in tqdm_dldr:
+            batch_mask_tkids = torch.LongTensor(batch_mask_tkids)
+            batch_target_tkids = torch.LongTensor(batch_target_tkids)
+            batch_is_mask = torch.FloatTensor(batch_is_mask)
 
             loss = model.loss_fn(
-                batch_msk_seq=batch_msk_seq,
-                batch_seq=batch_seq)
+                batch_mask_tkids=batch_mask_tkids.to(device),
+                batch_target_tkids=batch_target_tkids.to(device),
+                batch_is_mask=batch_is_mask.to(device),
+            )
             avg_loss += loss.item()
 
             loss.backward()
