@@ -139,7 +139,7 @@ def main():
                     continue
 
                 # Skip masking if current token is special token.
-                if tkid in [sp_tkids]:
+                if tkid in sp_tkids:
                     mask_tkids.append(tkid)
                     is_mask.append(0)
                     continue
@@ -188,15 +188,15 @@ if __name__ == '__main__':
 
 """
 python create_mlm_dataset.py \
-    --exp_name "test_data" \
+    --exp_name "mask_data_len512_pmask5_mlen7_n5_2w" \
     --dataset news \
     --file_name "news_v2.3.db" \
-    --max_seq_len 100 \
+    --max_seq_len 512 \
     --n_epoch 5 \
-    --n_sample 10 \
+    --n_sample 20000 \
     --seed 42 \
-    --p_mask 0.15 \
+    --p_mask 0.05 \
     --p_len 0.2 \
-    --max_span_len 10 \
-    --tknzr_exp_name "tknzr_news_v2.3"
+    --max_span_len 7 \
+    --tknzr_exp_name "tknzr_news_min6_v2.3"
 """

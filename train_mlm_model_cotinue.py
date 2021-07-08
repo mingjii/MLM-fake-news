@@ -17,38 +17,22 @@ from tokenizer import TKNZR_OPT
 def main():
     # Parse CLI arguments.
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', required=True, type=str)
     parser.add_argument('--exp_name', required=True, type=str)
-    parser.add_argument('--dataset_exp_name', required=True, type=str)
-    parser.add_argument('--batch_size', required=True, type=int)
-    parser.add_argument('--lr', required=True, type=float)
-    parser.add_argument('--max_seq_len', required=True, type=int)
-    parser.add_argument('--n_hid_lyr', required=True, type=int)
+    parser.add_argument('--ckpt', required=True, type=int)
     parser.add_argument('--n_epoch', required=True, type=int)
-    parser.add_argument('--n_head', required=True, type=int)
-    parser.add_argument('--n_sample', required=True, type=int)
-    parser.add_argument('--d_ff', required=True, type=int)
-    parser.add_argument('--d_hid', required=True, type=int)
-    parser.add_argument('--p_hid', required=True, type=float)
-    parser.add_argument('--ckpt_step', required=True, type=int)
-    parser.add_argument('--log_step', required=True, type=int)
     parser.add_argument('--seed', required=True, type=int)
-    parser.add_argument('--beta1', required=True, type=float)
-    parser.add_argument('--beta2', required=True, type=float)
-    parser.add_argument('--eps', required=True, type=float)
-    parser.add_argument('--max_norm', required=True, type=float)
-    parser.add_argument('--wd', required=True, type=float)
     args = parser.parse_args()
 
-    # Save configuration.
-    util.cfg.save(args)
+    cfg = util.cfg.load(exp_name=args.exp_name)
+    start_epoch = cfg.n_epoch
+    cfg.seed = args.seed
 
     # Random seed initialization.
-    util.seed.set_seed(seed=args.seed)
+    util.seed.set_seed(seed=cfg.seed)
 
     # Load dataset and dataset config.
-    dset = MLMDataset(exp_name=args.dataset_exp_name, n_sample=args.n_sample)
-    dset_cfg = util.cfg.load(exp_name=args.dataset_exp_name)
+    dset = MLMDataset(exp_name=cfg.dataset_exp_name, n_sample=cfg.n_sample)
+    dset_cfg = util.cfg.load(exp_name=cfg.dataset_exp_name)
 
     def collate_fn(batch):
         batch_mask_tkids = []
@@ -64,10 +48,9 @@ def main():
     # Create data loader.
     dldr = torch.utils.data.DataLoader(
         dset,
-        batch_size=args.batch_size,
+        batch_size=cfg.batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=len(os.sched_getaffinity(0)),
     )
 
     # Load tokenizer and config.
@@ -78,8 +61,12 @@ def main():
     if torch.cuda.is_available():
         device = torch.device('cuda')
 
-    # Load model.
-    model = MODEL_OPT[args.model](tknzr=tknzr, **args.__dict__)
+    # Load model and global optimization step.
+    model, step = MODEL_OPT[cfg.model].load(
+        ckpt=args.ckpt,
+        tknzr=tknzr,
+        **cfg.__dict__,
+    )
     model = model.train()
 
     # Move model to running device.
@@ -93,7 +80,7 @@ def main():
                 param for name, param in model.named_parameters()
                 if not any(nd in name for nd in no_decay)
             ],
-            'weight_decay': args.wd,
+            'weight_decay': cfg.wd,
         },
         {
             'params': [
@@ -107,19 +94,13 @@ def main():
     # Create optimizer.
     optim = torch.optim.AdamW(
         optim_group_params,
-        betas=(args.beta1, args.beta2),
-        lr=args.lr,
-        eps=args.eps,
+        betas=(cfg.beta1, cfg.beta2),
+        lr=cfg.lr,
+        eps=cfg.eps,
     )
-    # scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    #     optimizer,
-    #     max_lr=args.lr,
-    #     pct_start=0.1,
-    #     steps_per_epoch=len(dldr),
-    #     epochs=args.n_epoch,
-    # )
+
     # Loggin.
-    log_path = os.path.join(util.path.LOG_PATH, args.exp_name)
+    log_path = os.path.join(util.path.LOG_PATH, cfg.exp_name)
     if not os.path.exists(log_path):
         os.makedirs(log_path)
     writer = SummaryWriter(log_dir=log_path)
@@ -127,15 +108,15 @@ def main():
     # Log performance.
     pre_avg_loss = 0.0
     avg_loss = 0.0
+    step += step % cfg.log_step
+    
 
-    # Global optimization step.
-    step = 0
-
-    for epoch in range(args.n_epoch):
+    for epoch in range(start_epoch, args.n_epoch):
         tqdm_dldr = tqdm(
             dldr,
             desc=f'epoch: {epoch}, loss: {pre_avg_loss:.6f}',
         )
+        cfg.n_epoch = epoch + 1
         for batch_mask_tkids, batch_target_tkids, batch_is_mask in tqdm_dldr:
             batch_mask_tkids = torch.LongTensor(batch_mask_tkids)
             batch_target_tkids = torch.LongTensor(batch_target_tkids)
@@ -152,7 +133,7 @@ def main():
 
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(),
-                max_norm=args.max_norm,
+                max_norm=cfg.max_norm,
             )
 
             optim.step()
@@ -160,16 +141,12 @@ def main():
 
             step += 1
 
-            if step % args.ckpt_step == 0:
-                model.save(ckpt=step, exp_name=args.exp_name)
+            if step % cfg.ckpt_step == 0:
+                model.save(ckpt=step, exp_name=cfg.exp_name)
 
-            if step % args.log_step == 0:
-                avg_loss = avg_loss / args.log_step
+            if step % cfg.log_step == 0:
+                avg_loss = avg_loss / cfg.log_step
 
-                tqdm_dldr.set_description(
-                    f'epoch: {epoch}, loss: {avg_loss:.6f}'
-                )
-                
                 # Log on tensorboard
                 writer.add_scalar(
                     f'loss',
@@ -181,11 +158,15 @@ def main():
                 pre_avg_loss = avg_loss
                 avg_loss = 0.0
 
-                
-        if pre_avg_loss < 0.5 and pre_avg_loss !=0.0:
-            break
+                tqdm_dldr.set_description(
+                    f'epoch: {epoch}, loss: {pre_avg_loss:.6f}'
+                )
+
     # Save last checkpoint.
-    model.save(ckpt=step, exp_name=args.exp_name)
+    model.save(ckpt=step, exp_name=cfg.exp_name)
+
+    # Save configuration.
+    util.cfg.save(cfg)
 
     # Close tensorboard logger.
     writer.close()
@@ -193,3 +174,12 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+"""
+CUDA_VISIBLE_DEVICES=1 python train_mlm_model_cotinue.py \
+    --exp_name test_model \
+    --ckpt -1 \
+    --n_epoch 50 \
+    --seed 32 
+"""

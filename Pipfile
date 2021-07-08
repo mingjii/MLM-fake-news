@@ -10,6 +10,7 @@ transformers = "*"
 tensorboard = "*"
 matplotlib = "*"
 seaborn = "*"
+sentencepiece = "*"
 
 [dev-packages]
 autopep8 = "*"

@@ -1,0 +1,3 @@
+- 縮短mask length
+- 倒過來mask
+- 有機率不換成<mask>

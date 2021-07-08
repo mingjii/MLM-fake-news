@@ -223,11 +223,11 @@ class TransformerModel(nn.Module):
             raise FileExistsError(
                 f'Checkpoint file path {file_path} is a directory.'
             )
-
+        
         # Construct new model.
         self = cls(**kwargs)
 
         # Load pre-trained parameters.
         self.load_state_dict(torch.load(file_path))
 
-        return self
+        return self, ckpt

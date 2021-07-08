@@ -2,7 +2,7 @@ import os
 import sqlite3
 import pickle
 import torch
-
+from tqdm import tqdm
 import util.path
 
 
@@ -37,8 +37,8 @@ class MLMDataset(torch.utils.data.Dataset):
 
         # Get all news title and article.
         count = 0
-        for b_mask_tkids, b_target_tkids, b_is_mask in iter(cursor.execute(
-                'SELECT mask_tkids, target_tkids, is_mask from mlm;')):
+        for b_mask_tkids, b_target_tkids, b_is_mask in tqdm(iter(cursor.execute(
+                'SELECT mask_tkids, target_tkids, is_mask from mlm;'))):
             count += 1
             if count > n_sample and n_sample != -1:
                 break

@@ -6,11 +6,11 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import os
 import tokenizer
-
+import html
 import util.cfg
 import util.seed
 from model import MODEL_OPT
-from dataset import DSET_OPT
+from dataset.mlm import MLMDataset
 from tokenizer import TKNZR_OPT
 
 
@@ -25,21 +25,28 @@ def main():
 
     util.seed.set_seed(seed=args.seed)
 
-    cfg = util.cfg.load(exp_name=args.exp_name)
-    tknzr = TKNZR_OPT[cfg.tknzr_type].load(exp_name=cfg.tknzr_exp_name)
-    # Load dataset.
-    dset = DSET_OPT[cfg.dset](cfg.data, cfg.n_sample)
-    batch_title = []
-    batch_txt = []
-    for i in [23, 19923, 2834, 30000, 81111]:
-        data = dset[i]
-        batch_title.append(data[0])
-        batch_txt.append(data[1])
+    exp_cfg = util.cfg.load(exp_name=args.exp_name)
+    # Load dataset and dataset config.
+    dset = MLMDataset(exp_name=exp_cfg.dataset_exp_name, n_sample=exp_cfg.n_sample)
+    dset_cfg = util.cfg.load(exp_name=exp_cfg.dataset_exp_name)
 
-    model = MODEL_OPT[cfg.model].load(
+    # Load tokenizer and config.
+    tknzr_cfg = util.cfg.load(exp_name=dset_cfg.tknzr_exp_name)
+    tknzr = TKNZR_OPT[tknzr_cfg.tknzr].load(exp_name=tknzr_cfg.exp_name)
+
+    batch_mask_tkids = []
+    batch_target_tkids = []
+    batch_is_mask = []
+    for i in [1, 1001, 2001, 3001, 4001]:
+        (mask_tkids, target_tkids, is_mask) = dset[i]
+        batch_mask_tkids.append(mask_tkids)
+        batch_target_tkids.append(target_tkids)
+        batch_is_mask.append(is_mask)
+
+    model, _ = MODEL_OPT[exp_cfg.model].load(
         ckpt=args.ckpt,
         tknzr=tknzr,
-        **cfg.__dict__,
+        **exp_cfg.__dict__,
     )
     model.eval()
 
@@ -49,35 +56,12 @@ def main():
 
     model = model.to(device)
 
-    ignore_tkids = [tknzr.cls_tkid, tknzr.sep_tkid, tknzr.pad_tkid]
+    batch_mask_tkids = torch.LongTensor(batch_mask_tkids).to(device)
+    batch_target_tkids = torch.LongTensor(batch_target_tkids).to(device)
+    batch_is_mask = torch.BoolTensor(batch_is_mask).to(device)
 
-    batch_seq = [
-        title +
-        tknzr.eos_tk +
-        content for title,
-        content in zip(
-            batch_title,
-            batch_txt)]
-
-    # shape: (B, S)
-    batch_seq = tknzr.batch_enc(batch_seq, max_seq_len=cfg.max_seq_len)
-
-    # shape: (B, S)
-    batch_msk_seq = [
-        [tknzr.mask_tkid
-            if (token not in ignore_tkids) and (random.random() <= 0.15)
-            else token
-            for token in data
-         ]
-        for data in batch_seq
-    ]
-
-    batch_seq = torch.LongTensor(batch_seq).to(device)
-    batch_msk_seq = torch.LongTensor(batch_msk_seq).to(device)
-    mask_tks = tknzr.batch_dec(batch_msk_seq.tolist(), rm_sp_tks=False)
-
-    out_probs = model.pred(batch_msk_seq)
-    print(f"out_probs: {out_probs.shape}")
+    out_probs = model.pred(batch_mask_tkids)
+    # print(f"out_probs's shape: {out_probs.shape}")
     (
         batch_topk_tkid_probs,
         batch_topk_tkid,
@@ -85,46 +69,89 @@ def main():
         k=args.k,
         dim=-1,
     )
-    print(
-        f"batch_topk_tkid_probs, batch_topk_tkid,: {batch_topk_tkid_probs.shape, batch_topk_tkid.shape}")
+    # B, S, K
+    # print(
+    #     f"batch_topk_tkid_probs's shape, batch_topk_tkid's shape,: {batch_topk_tkid_probs.shape, batch_topk_tkid.shape}")
+    B = batch_topk_tkid_probs.shape[0]
+    S = batch_topk_tkid_probs.shape[1]
+    
     batch_pred_tkid_cand_idx = torch.stack(
-        [torch.multinomial(B, num_samples=1) for B in batch_topk_tkid_probs]
+        [torch.multinomial(BS, num_samples=1) for BS in batch_topk_tkid_probs.view(-1, args.k)]
     )
-    print(f"batch_pred_tkid_cand_idx: {batch_pred_tkid_cand_idx.shape}")
+    # print(f"batch_pred_tkid_cand_idx's shape: {batch_pred_tkid_cand_idx.shape}")
     batch_pred_tkid = torch.gather(
         batch_topk_tkid,
         -1,
-        batch_pred_tkid_cand_idx,
+        batch_pred_tkid_cand_idx.view(B, S, 1),
     )
-    print(f"batch_pred_tkid: {batch_pred_tkid.shape}")
-    print(batch_msk_seq.type(), batch_msk_seq.device)
-    mask = batch_msk_seq == tknzr.mask_tkid
-    mask = mask.to(device)
-    print(mask.type())
-    print(mask.device)
-    print(batch_pred_tkid.device)
-    print(mask.shape, batch_pred_tkid.shape, batch_msk_seq.shape)
+    # print(f"batch_pred_tkid's shape: {batch_pred_tkid.shape}")
+    
+    # print(batch_is_mask.type())
+    # print(batch_is_mask.device)
+    # print(batch_pred_tkid.device)
+    # print(batch_is_mask.shape, batch_pred_tkid.shape, batch_target_tkids.shape)
     out_ids = torch.where(
-        mask,
+        batch_is_mask,
         batch_pred_tkid.squeeze(),
-        batch_msk_seq
+        batch_target_tkids
     )
 
     out_tks = tknzr.batch_dec(out_ids.tolist(), rm_sp_tks=False)
-    mask_tks = tknzr.batch_dec(batch_msk_seq.tolist(), rm_sp_tks=False)
-    print("Inference:")
-    for input, pred in zip(mask_tks, out_tks):
-        print(f"input:\n{input}")
-        print(f"pred:\n{pred}")
-
+    ori_out_tks = tknzr.batch_dec(batch_pred_tkid.squeeze().tolist(), rm_sp_tks=False)
+    mask_tks = tknzr.batch_dec(batch_mask_tkids.tolist(), rm_sp_tks=False)
+    target_tks = tknzr.batch_dec(batch_target_tkids.tolist(), rm_sp_tks=False)
+    # print("Inference:")
+    # print('<div style="border: 2px solid black; display:grid; grid-template-columns: 1fr 1fr 1fr ">')
+    # print('<div style="border: 1px solid black;">input</div>')
+    # print('<div style="border: 1px solid black;">topk1</div>')
+    # print('<div style="border: 1px solid black;">target</div>')
+    mask_count = 0
+    mask_acc = 0
+    all_acc = 0
+    count = 0
+    print('<table>')
+    for text, target, pred, ori_pred in zip(mask_tks, target_tks, out_tks, ori_out_tks):
+        l_text = tknzr.tknz(text)
+        l_target = tknzr.tknz(target)
+        l_pred = tknzr.tknz(pred)
+        l_ori_pred = tknzr.tknz(ori_pred)
+        print('<tr><th>text</th><th>target</th><th>pred</th><th>ori_pred</th></tr>')
+        for a,b,c,d in zip(l_text, l_target, l_pred, l_ori_pred):
+            if b != "<pad>":
+                count += 1
+                if b == d:
+                    all_acc += 1
+            if a == "<mask>":
+                mask_count += 1
+                if b == c:
+                    mask_acc += 1
+                else:
+                    c += "<ERROR>"
+            
+            print('<tr>')
+            print(f'<td>{html.escape(a)}</td><td>{html.escape(b)}</td><td>{html.escape(c)}</td><td>{html.escape(d)}</td>')
+            print('</tr>')
+            
+    print('</table>')
+    
+    print(f"<div>predict mask accuracy:{mask_acc/mask_count}, number of error:{mask_count-mask_acc}</div>")
+    print(f"<div>predict all tokens accuracy:{all_acc/count}, number of error:{count-all_acc}</div>")
+        # r_text = text.replace("<mask>", "<b style=\"color:lightgreen\">m</b>")
+        # print(f'<div style="border: 1px solid black;">{r_text}</div>')
+        # print(f'<div style="border: 1px solid black;">{target}</div>')
+        # print(f'<div style="border: 1px solid black;">{pred}</div>')
+        # print(f"input:\n{text}")
+        # print(f"target:\n{target}")
+        # print(f"pred:\n{pred}")
+    # print('</div>')
 
 if __name__ == '__main__':
     main()
 
 """
-python infer_mlm_model.py \
-    --ckpt 90000 \
-    --exp_name char/Transformer_tknzr_news_v2.2_layer3 \
+CUDA_VISIBLE_DEVICES=0 python infer_mlm_model.py \
+    --ckpt 1000 \
+    --exp_name simple_test_100 \
     --k 1 \
-    --seed 42 \
+    --seed 42 
 """
