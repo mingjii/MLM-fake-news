@@ -2,6 +2,7 @@
 data
 exp
 log
+exp_news.py
 *.html
 *.txt
 

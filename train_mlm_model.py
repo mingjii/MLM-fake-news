@@ -146,42 +146,41 @@ def main():
                 batch_target_tkids=batch_target_tkids.to(device),
                 batch_is_mask=batch_is_mask.to(device),
             )
-            avg_loss += loss.item()
+            avg_loss += loss.item() / accumulation_steps
 
             loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(),
-                max_norm=args.max_norm,
-            )
-
             accumulation_count += 1
             if accumulation_count == accumulation_steps:
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(),
+                    max_norm=args.max_norm,
+                )
                 optim.step()
                 optim.zero_grad()
                 step += 1
                 accumulation_count = 0
 
-            if step % args.ckpt_step == 0:
-                model.save(ckpt=step, exp_name=args.exp_name)
+                if step % args.ckpt_step == 0:
+                    model.save(ckpt=step, exp_name=args.exp_name)
 
-            if step % args.log_step == 0:
-                avg_loss = avg_loss / args.log_step
+                if step % args.log_step == 0:
+                    avg_loss = avg_loss / args.log_step
 
-                tqdm_dldr.set_description(
-                    f'epoch: {epoch}, loss: {avg_loss:.6f}'
-                )
+                    tqdm_dldr.set_description(
+                        f'epoch: {epoch}, loss: {avg_loss:.6f}'
+                    )
 
-                # Log on tensorboard
-                writer.add_scalar(
-                    f'loss',
-                    avg_loss,
-                    step,
-                )
+                    # Log on tensorboard
+                    writer.add_scalar(
+                        f'loss',
+                        avg_loss,
+                        step,
+                    )
 
-                # Refresh log performance.
-                pre_avg_loss = avg_loss
-                avg_loss = 0.0
+                    # Refresh log performance.
+                    pre_avg_loss = avg_loss
+                    avg_loss = 0.0
 
         if pre_avg_loss < 0.5 and pre_avg_loss != 0.0:
             break
