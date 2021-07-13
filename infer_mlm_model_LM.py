@@ -35,6 +35,10 @@ def main():
     tknzr_cfg = util.cfg.load(exp_name=dset_cfg.tknzr_exp_name)
     tknzr = TKNZR_OPT[tknzr_cfg.tknzr].load(exp_name=tknzr_cfg.exp_name)
 
+    device = torch.device('cpu')
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+
     batch_mask_tkids = []
     batch_target_tkids = []
     batch_is_mask = []
@@ -51,79 +55,65 @@ def main():
     )
     model.eval()
 
-    device = torch.device('cpu')
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-
     model = model.to(device)
 
+    # B x S
     batch_mask_tkids = torch.LongTensor(batch_mask_tkids).to(device)
     batch_target_tkids = torch.LongTensor(batch_target_tkids).to(device)
     batch_is_mask = torch.BoolTensor(batch_is_mask).to(device)
 
-    out_probs = model.pred(batch_mask_tkids)
-    # print(f"out_probs's shape: {out_probs.shape}")
-    (
-        batch_topk_tkid_probs,
-        batch_topk_tkid,
-    ) = out_probs.topk(
-        k=args.k,
-        dim=-1,
-    )
-    # B, S, K
-    # print(
-    #     f"batch_topk_tkid_probs's shape, batch_topk_tkid's shape,: {batch_topk_tkid_probs.shape, batch_topk_tkid.shape}")
-    B = batch_topk_tkid_probs.shape[0]
-    S = batch_topk_tkid_probs.shape[1]
+    output = []
+    for mask_tkids, is_mask in zip(batch_mask_tkids, batch_is_mask):
+        # S, 1
+        output_tkids = mask_tkids.clone()
+        for i in range(exp_cfg.max_seq_len):
+            if not is_mask[i]:
+                continue
 
-    batch_pred_tkid_cand_idx = torch.stack(
-        [torch.multinomial(BS, num_samples=1)
-         for BS in batch_topk_tkid_probs.view(-1, args.k)]
-    )
-    # print(f"batch_pred_tkid_cand_idx's shape: {batch_pred_tkid_cand_idx.shape}")
-    batch_pred_tkid = torch.gather(
-        batch_topk_tkid,
-        -1,
-        batch_pred_tkid_cand_idx.view(B, S, 1),
-    )
-    # print(f"batch_pred_tkid's shape: {batch_pred_tkid.shape}")
+            # In: 1, S
+            # Out: S, V
+            out_probs = model.pred(output_tkids.unsqueeze(0)).squeeze()
 
-    # print(batch_is_mask.type())
-    # print(batch_is_mask.device)
-    # print(batch_pred_tkid.device)
-    # print(batch_is_mask.shape, batch_pred_tkid.shape, batch_target_tkids.shape)
-    out_ids = torch.where(
-        batch_is_mask,
-        batch_pred_tkid.squeeze(),
-        batch_target_tkids
-    )
+            # In: V
+            # Out: K
+            (
+                topk_tkid_probs,
+                topk_tkid,
+            ) = out_probs[i].topk(
+                k=args.k,
+                dim=-1,
+            )
 
-    out_tks = tknzr.batch_dec(out_ids.tolist(), rm_sp_tks=False)
-    ori_out_tks = tknzr.batch_dec(
-        batch_pred_tkid.squeeze().tolist(), rm_sp_tks=False)
-    mask_tks = tknzr.batch_dec(batch_mask_tkids.tolist(), rm_sp_tks=False)
-    target_tks = tknzr.batch_dec(batch_target_tkids.tolist(), rm_sp_tks=False)
-    # print("Inference:")
-    # print('<div style="border: 2px solid black; display:grid; grid-template-columns: 1fr 1fr 1fr ">')
-    # print('<div style="border: 1px solid black;">input</div>')
-    # print('<div style="border: 1px solid black;">topk1</div>')
-    # print('<div style="border: 1px solid black;">target</div>')
+            # 1
+            pred_tkid_cand_idx = torch.multinomial(
+                topk_tkid_probs, num_samples=1)
+
+            # 1
+            pred_tkid = torch.gather(
+                topk_tkid,
+                -1,
+                pred_tkid_cand_idx,
+            )
+
+            output_tkids[i] = pred_tkid
+
+        output.append(output_tkids.tolist())
+
+    batch_out_tks = tknzr.batch_dec(output, rm_sp_tks=False)
+    batch_mask_tks = tknzr.batch_dec(
+        batch_mask_tkids.tolist(), rm_sp_tks=False)
+    batch_target_tks = tknzr.batch_dec(
+        batch_target_tkids.tolist(), rm_sp_tks=False)
     mask_count = 0
     mask_acc = 0
-    all_acc = 0
-    count = 0
+
     print('<table>')
-    for text, target, pred, ori_pred in zip(mask_tks, target_tks, out_tks, ori_out_tks):
+    for text, target, pred in zip(batch_mask_tks, batch_target_tks, batch_out_tks):
         l_text = tknzr.tknz(text)
         l_target = tknzr.tknz(target)
         l_pred = tknzr.tknz(pred)
-        l_ori_pred = tknzr.tknz(ori_pred)
-        print('<tr><th>text</th><th>target</th><th>pred</th><th>ori_pred</th></tr>')
-        for a, b, c, d in zip(l_text, l_target, l_pred, l_ori_pred):
-            if b != "<pad>":
-                count += 1
-                if b == d:
-                    all_acc += 1
+        print('<tr><th>text</th><th>target</th><th>pred</th></tr>')
+        for a, b, c in zip(l_text, l_target, l_pred,):
             if a == "<mask>":
                 mask_count += 1
                 if b == c:
@@ -133,15 +123,13 @@ def main():
 
             print('<tr>')
             print(
-                f'<td>{html.escape(a)}</td><td>{html.escape(b)}</td><td>{html.escape(c)}</td><td>{html.escape(d)}</td>')
+                f'<td>{html.escape(a)}</td><td>{html.escape(b)}</td><td>{html.escape(c)}</td>')
             print('</tr>')
 
     print('</table>')
 
-    print(
-        f"<div>predict mask accuracy:{mask_acc/mask_count}, number of error:{mask_count-mask_acc}</div>")
-    print(
-        f"<div>predict all tokens accuracy:{all_acc/count}, number of error:{count-all_acc}</div>")
+    # print(f"<div>predict mask accuracy:{mask_acc/mask_count}, number of error:{mask_count-mask_acc}</div>")
+    # print(f"<div>predict all tokens accuracy:{all_acc/count}, number of error:{count-all_acc}</div>")
     # r_text = text.replace("<mask>", "<b style=\"color:lightgreen\">m</b>")
     # print(f'<div style="border: 1px solid black;">{r_text}</div>')
     # print(f'<div style="border: 1px solid black;">{target}</div>')
@@ -156,9 +144,9 @@ if __name__ == '__main__':
     main()
 
 """
-CUDA_VISIBLE_DEVICES=0 python infer_mlm_model.py \
+CUDA_VISIBLE_DEVICES=0 python infer_mlm_model_LM.py \
     --ckpt 200000 \
     --exp_name n10_m7_p10_v2.3 \
     --k 1 \
-    --seed 42 >>alldata.html
+    --seed 42 >>alldata_LM.html
 """

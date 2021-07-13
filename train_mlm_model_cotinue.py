@@ -17,42 +17,25 @@ from tokenizer import TKNZR_OPT
 def main():
     # Parse CLI arguments.
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', required=True, type=str)
     parser.add_argument('--exp_name', required=True, type=str)
-    parser.add_argument('--dataset_exp_name', required=True, type=str)
-    parser.add_argument('--batch_size', required=True, type=int)
-    parser.add_argument('--step_size', required=True, type=int)
-    parser.add_argument('--lr', required=True, type=float)
-    parser.add_argument('--max_seq_len', required=True, type=int)
-    parser.add_argument('--n_hid_lyr', required=True, type=int)
+    parser.add_argument('--ckpt', required=True, type=int)
     parser.add_argument('--n_epoch', required=True, type=int)
-    parser.add_argument('--n_head', required=True, type=int)
-    parser.add_argument('--n_sample', required=True, type=int)
-    parser.add_argument('--d_ff', required=True, type=int)
-    parser.add_argument('--d_hid', required=True, type=int)
-    parser.add_argument('--p_hid', required=True, type=float)
-    parser.add_argument('--ckpt_step', required=True, type=int)
-    parser.add_argument('--log_step', required=True, type=int)
     parser.add_argument('--seed', required=True, type=int)
-    parser.add_argument('--beta1', required=True, type=float)
-    parser.add_argument('--beta2', required=True, type=float)
-    parser.add_argument('--eps', required=True, type=float)
-    parser.add_argument('--max_norm', required=True, type=float)
-    parser.add_argument('--wd', required=True, type=float)
     args = parser.parse_args()
 
-    if args.step_size % args.batch_size != 0:
-        raise ValueError('`step_size` must be divided by `batch_size`')
-
+    cfg = util.cfg.load(exp_name=args.exp_name)
+    start_epoch = cfg.n_epoch
+    cfg.n_epoch = args.n_epoch
+    cfg.seed = args.seed
     # Save configuration.
-    util.cfg.save(args)
+    util.cfg.save(cfg)
 
     # Random seed initialization.
-    util.seed.set_seed(seed=args.seed)
+    util.seed.set_seed(seed=cfg.seed)
 
     # Load dataset and dataset config.
-    dset = MLMDataset(exp_name=args.dataset_exp_name, n_sample=args.n_sample)
-    dset_cfg = util.cfg.load(exp_name=args.dataset_exp_name)
+    dset = MLMDataset(exp_name=cfg.dataset_exp_name, n_sample=cfg.n_sample)
+    dset_cfg = util.cfg.load(exp_name=cfg.dataset_exp_name)
 
     def collate_fn(batch):
         batch_mask_tkids = []
@@ -68,10 +51,9 @@ def main():
     # Create data loader.
     dldr = torch.utils.data.DataLoader(
         dset,
-        batch_size=args.batch_size,
+        batch_size=cfg.batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=len(os.sched_getaffinity(0)),
     )
 
     # Load tokenizer and config.
@@ -83,7 +65,7 @@ def main():
         device = torch.device('cuda')
 
     # Load model.
-    model = MODEL_OPT[args.model](tknzr=tknzr, **args.__dict__)
+    model = MODEL_OPT[cfg.model].load(args.ckpt, args.exp_name, **cfg.__dict__)
     model = model.train()
 
     # Move model to running device.
@@ -97,7 +79,7 @@ def main():
                 param for name, param in model.named_parameters()
                 if not any(nd in name for nd in no_decay)
             ],
-            'weight_decay': args.wd,
+            'weight_decay': cfg.wd,
         },
         {
             'params': [
@@ -111,19 +93,13 @@ def main():
     # Create optimizer.
     optim = torch.optim.AdamW(
         optim_group_params,
-        betas=(args.beta1, args.beta2),
-        lr=args.lr,
-        eps=args.eps,
+        betas=(cfg.beta1, cfg.beta2),
+        lr=cfg.lr,
+        eps=cfg.eps,
     )
-    # scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    #     optimizer,
-    #     max_lr=args.lr,
-    #     pct_start=0.1,
-    #     steps_per_epoch=len(dldr),
-    #     epochs=args.n_epoch,
-    # )
+
     # Loggin.
-    log_path = os.path.join(util.path.LOG_PATH, args.exp_name)
+    log_path = os.path.join(util.path.LOG_PATH, cfg.exp_name)
     if not os.path.exists(log_path):
         os.makedirs(log_path)
     writer = SummaryWriter(log_dir=log_path)
@@ -135,7 +111,7 @@ def main():
     # Global optimization step.
     step = 0
 
-    for epoch in range(args.n_epoch):
+    for epoch in range(cfg.n_epoch):
         tqdm_dldr = tqdm(
             dldr,
             desc=f'epoch: {epoch}, loss: {pre_avg_loss:.6f}',
@@ -156,7 +132,7 @@ def main():
 
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(),
-                max_norm=args.max_norm,
+                max_norm=cfg.max_norm,
             )
 
             optim.step()
@@ -164,19 +140,15 @@ def main():
 
             step += 1
 
-            if step % args.ckpt_step == 0:
-                model.save(ckpt=step, exp_name=args.exp_name)
+            if step % cfg.ckpt_step == 0:
+                model.save(ckpt=step, exp_name=cfg.exp_name)
 
-            if step % args.log_step == 0:
-                avg_loss = avg_loss / args.log_step
-
-                tqdm_dldr.set_description(
-                    f'epoch: {epoch}, loss: {avg_loss:.6f}'
-                )
+            if step % cfg.log_step == 0:
+                avg_loss = avg_loss / cfg.log_step
 
                 # Log on tensorboard
                 writer.add_scalar(
-                    f'loss',
+                    f'loss/{cfg.exp_name}',
                     avg_loss,
                     step,
                 )
@@ -185,10 +157,12 @@ def main():
                 pre_avg_loss = avg_loss
                 avg_loss = 0.0
 
-        if pre_avg_loss < 0.5 and pre_avg_loss != 0.0:
-            break
+                tqdm_dldr.set_description(
+                    f'epoch: {epoch}, loss: {pre_avg_loss:.6f}'
+                )
+
     # Save last checkpoint.
-    model.save(ckpt=step, exp_name=args.exp_name)
+    model.save(ckpt=step, exp_name=cfg.exp_name)
 
     # Close tensorboard logger.
     writer.close()
