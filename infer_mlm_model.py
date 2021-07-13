@@ -26,9 +26,11 @@ def main():
     util.seed.set_seed(seed=args.seed)
 
     exp_cfg = util.cfg.load(exp_name=args.exp_name)
+
     # Load dataset and dataset config.
     dset = MLMDataset(exp_name=exp_cfg.dataset_exp_name,
                       n_sample=exp_cfg.n_sample)
+
     dset_cfg = util.cfg.load(exp_name=exp_cfg.dataset_exp_name)
 
     # Load tokenizer and config.
@@ -99,8 +101,10 @@ def main():
     )
 
     out_tks = tknzr.batch_dec(out_ids.tolist(), rm_sp_tks=False)
+
     ori_out_tks = tknzr.batch_dec(
         batch_pred_tkid.squeeze().tolist(), rm_sp_tks=False)
+
     mask_tks = tknzr.batch_dec(batch_mask_tkids.tolist(), rm_sp_tks=False)
     target_tks = tknzr.batch_dec(batch_target_tkids.tolist(), rm_sp_tks=False)
     # print("Inference:")

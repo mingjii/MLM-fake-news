@@ -25,10 +25,7 @@ def main():
 
     cfg = util.cfg.load(exp_name=args.exp_name)
     start_epoch = cfg.n_epoch
-    cfg.n_epoch = args.n_epoch
     cfg.seed = args.seed
-    # Save configuration.
-    util.cfg.save(cfg)
 
     # Random seed initialization.
     util.seed.set_seed(seed=cfg.seed)
@@ -64,8 +61,12 @@ def main():
     if torch.cuda.is_available():
         device = torch.device('cuda')
 
-    # Load model.
-    model = MODEL_OPT[cfg.model].load(args.ckpt, args.exp_name, **cfg.__dict__)
+    # Load model and global optimization step.
+    model, step = MODEL_OPT[cfg.model].load(
+        ckpt=args.ckpt,
+        tknzr=tknzr,
+        **cfg.__dict__,
+    )
     model = model.train()
 
     # Move model to running device.
@@ -107,15 +108,14 @@ def main():
     # Log performance.
     pre_avg_loss = 0.0
     avg_loss = 0.0
+    step += step % cfg.log_step
 
-    # Global optimization step.
-    step = 0
-
-    for epoch in range(cfg.n_epoch):
+    for epoch in range(start_epoch, args.n_epoch):
         tqdm_dldr = tqdm(
             dldr,
             desc=f'epoch: {epoch}, loss: {pre_avg_loss:.6f}',
         )
+        cfg.n_epoch = epoch + 1
         for batch_mask_tkids, batch_target_tkids, batch_is_mask in tqdm_dldr:
             batch_mask_tkids = torch.LongTensor(batch_mask_tkids)
             batch_target_tkids = torch.LongTensor(batch_target_tkids)
@@ -148,7 +148,7 @@ def main():
 
                 # Log on tensorboard
                 writer.add_scalar(
-                    f'loss/{cfg.exp_name}',
+                    f'loss',
                     avg_loss,
                     step,
                 )
@@ -164,9 +164,21 @@ def main():
     # Save last checkpoint.
     model.save(ckpt=step, exp_name=cfg.exp_name)
 
+    # Save configuration.
+    util.cfg.save(cfg)
+
     # Close tensorboard logger.
     writer.close()
 
 
 if __name__ == '__main__':
     main()
+
+
+"""
+CUDA_VISIBLE_DEVICES=1 python train_mlm_model_cotinue.py \
+    --exp_name test_model \
+    --ckpt -1 \
+    --n_epoch 50 \
+    --seed 32 
+"""

@@ -52,13 +52,13 @@ if __name__ == '__main__':
 
 """
 python train_tokenizer.py \
-  --exp_name tknzr_news_v2.3 \
+  --exp_name tknzr_news_min6_v2.3 \
   --data news_v2.3.db \
   --dset news \
   --tknzr char \
   --max_vocab -1 \
-  --min_count 1 \
-  --n_sample 1000 \
+  --min_count 6 \
+  --n_sample -1 \
   --is_uncased \
   --seed 42
 """
