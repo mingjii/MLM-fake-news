@@ -109,6 +109,8 @@ def main():
     pre_avg_loss = 0.0
     avg_loss = 0.0
     step += step % cfg.log_step
+    accumulation_steps = cfg.step_size / cfg.batch_size
+    accumulation_count = 0
 
     for epoch in range(start_epoch, args.n_epoch):
         tqdm_dldr = tqdm(
@@ -135,10 +137,12 @@ def main():
                 max_norm=cfg.max_norm,
             )
 
-            optim.step()
-            optim.zero_grad()
-
-            step += 1
+            accumulation_count += 1
+            if accumulation_count == accumulation_steps:
+                optim.step()
+                optim.zero_grad()
+                step += 1
+                accumulation_count = 0
 
             if step % cfg.ckpt_step == 0:
                 model.save(ckpt=step, exp_name=cfg.exp_name)

@@ -115,13 +115,7 @@ def main():
         lr=args.lr,
         eps=args.eps,
     )
-    # scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    #     optimizer,
-    #     max_lr=args.lr,
-    #     pct_start=0.1,
-    #     steps_per_epoch=len(dldr),
-    #     epochs=args.n_epoch,
-    # )
+
     # Loggin.
     log_path = os.path.join(util.path.LOG_PATH, args.exp_name)
     if not os.path.exists(log_path):
@@ -134,6 +128,8 @@ def main():
 
     # Global optimization step.
     step = 0
+    accumulation_steps = args.step_size / args.batch_size
+    accumulation_count = 0
 
     for epoch in range(args.n_epoch):
         tqdm_dldr = tqdm(
@@ -159,10 +155,12 @@ def main():
                 max_norm=args.max_norm,
             )
 
-            optim.step()
-            optim.zero_grad()
-
-            step += 1
+            accumulation_count += 1
+            if accumulation_count == accumulation_steps:
+                optim.step()
+                optim.zero_grad()
+                step += 1
+                accumulation_count = 0
 
             if step % args.ckpt_step == 0:
                 model.save(ckpt=step, exp_name=args.exp_name)
