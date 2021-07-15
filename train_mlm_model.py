@@ -21,6 +21,9 @@ def main():
     parser.add_argument('--exp_name', required=True, type=str)
     parser.add_argument('--dataset_exp_name', required=True, type=str)
     parser.add_argument('--batch_size', required=True, type=int)
+    parser.add_argument('--ckpt_step', required=True, type=int)
+    parser.add_argument('--warmup_step', required=True, type=int)
+    parser.add_argument('--step_size', required=True, type=int)
     parser.add_argument('--lr', required=True, type=float)
     parser.add_argument('--max_seq_len', required=True, type=int)
     parser.add_argument('--n_hid_lyr', required=True, type=int)
@@ -30,7 +33,6 @@ def main():
     parser.add_argument('--d_ff', required=True, type=int)
     parser.add_argument('--d_hid', required=True, type=int)
     parser.add_argument('--p_hid', required=True, type=float)
-    parser.add_argument('--ckpt_step', required=True, type=int)
     parser.add_argument('--log_step', required=True, type=int)
     parser.add_argument('--seed', required=True, type=int)
     parser.add_argument('--beta1', required=True, type=float)
@@ -39,6 +41,9 @@ def main():
     parser.add_argument('--max_norm', required=True, type=float)
     parser.add_argument('--wd', required=True, type=float)
     args = parser.parse_args()
+
+    if args.step_size % args.batch_size != 0:
+        raise ValueError('`step_size` must be divided by `batch_size`')
 
     # Save configuration.
     util.cfg.save(args)
@@ -111,13 +116,7 @@ def main():
         lr=args.lr,
         eps=args.eps,
     )
-    # scheduler = torch.optim.lr_scheduler.OneCycleLR(
-    #     optimizer,
-    #     max_lr=args.lr,
-    #     pct_start=0.1,
-    #     steps_per_epoch=len(dldr),
-    #     epochs=args.n_epoch,
-    # )
+
     # Loggin.
     log_path = os.path.join(util.path.LOG_PATH, args.exp_name)
     if not os.path.exists(log_path):
@@ -130,6 +129,8 @@ def main():
 
     # Global optimization step.
     step = 0
+    accumulation_steps = args.step_size / args.batch_size
+    accumulation_count = 0
 
     for epoch in range(args.n_epoch):
         tqdm_dldr = tqdm(
@@ -146,43 +147,48 @@ def main():
                 batch_target_tkids=batch_target_tkids.to(device),
                 batch_is_mask=batch_is_mask.to(device),
             )
-            avg_loss += loss.item()
+            avg_loss += loss.item() / accumulation_steps
 
             loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(),
-                max_norm=args.max_norm,
-            )
-
-            optim.step()
-            optim.zero_grad()
-
-            step += 1
-
-            if step % args.ckpt_step == 0:
-                model.save(ckpt=step, exp_name=args.exp_name)
-
-            if step % args.log_step == 0:
-                avg_loss = avg_loss / args.log_step
-
-                tqdm_dldr.set_description(
-                    f'epoch: {epoch}, loss: {avg_loss:.6f}'
+            accumulation_count += 1
+            if accumulation_count == accumulation_steps:
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(),
+                    max_norm=args.max_norm,
                 )
-                
-                # Log on tensorboard
-                writer.add_scalar(
-                    f'loss',
-                    avg_loss,
-                    step,
-                )
+                optim.step()
+                optim.zero_grad()
+                step += 1
+                accumulation_count = 0
 
-                # Refresh log performance.
-                pre_avg_loss = avg_loss
-                avg_loss = 0.0
+                if step <= args.warmup_step:
+                    warmup_factor = min(1.0, step/args.warmup_step)
+                    for parameters in optim.param_groups:
+                        parameters['lr'] = args.lr*warmup_factor 
 
-                
-        if pre_avg_loss < 0.5 and pre_avg_loss !=0.0:
+                if step % args.ckpt_step == 0:
+                    model.save(ckpt=step, exp_name=args.exp_name)
+
+                if step % args.log_step == 0:
+                    avg_loss = avg_loss / args.log_step
+
+                    tqdm_dldr.set_description(
+                        f'epoch: {epoch}, loss: {avg_loss:.6f}'
+                    )
+
+                    # Log on tensorboard
+                    writer.add_scalar(
+                        f'loss',
+                        avg_loss,
+                        step,
+                    )
+
+                    # Refresh log performance.
+                    pre_avg_loss = avg_loss
+                    avg_loss = 0.0
+
+        if pre_avg_loss < 0.5 and pre_avg_loss != 0.0:
             break
     # Save last checkpoint.
     model.save(ckpt=step, exp_name=args.exp_name)

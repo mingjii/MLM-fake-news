@@ -26,8 +26,11 @@ def main():
     util.seed.set_seed(seed=args.seed)
 
     exp_cfg = util.cfg.load(exp_name=args.exp_name)
+
     # Load dataset and dataset config.
-    dset = MLMDataset(exp_name=exp_cfg.dataset_exp_name, n_sample=exp_cfg.n_sample)
+    dset = MLMDataset(exp_name=exp_cfg.dataset_exp_name,
+                      n_sample=exp_cfg.n_sample)
+
     dset_cfg = util.cfg.load(exp_name=exp_cfg.dataset_exp_name)
 
     # Load tokenizer and config.
@@ -74,9 +77,10 @@ def main():
     #     f"batch_topk_tkid_probs's shape, batch_topk_tkid's shape,: {batch_topk_tkid_probs.shape, batch_topk_tkid.shape}")
     B = batch_topk_tkid_probs.shape[0]
     S = batch_topk_tkid_probs.shape[1]
-    
+
     batch_pred_tkid_cand_idx = torch.stack(
-        [torch.multinomial(BS, num_samples=1) for BS in batch_topk_tkid_probs.view(-1, args.k)]
+        [torch.multinomial(BS, num_samples=1)
+         for BS in batch_topk_tkid_probs.view(-1, args.k)]
     )
     # print(f"batch_pred_tkid_cand_idx's shape: {batch_pred_tkid_cand_idx.shape}")
     batch_pred_tkid = torch.gather(
@@ -85,7 +89,7 @@ def main():
         batch_pred_tkid_cand_idx.view(B, S, 1),
     )
     # print(f"batch_pred_tkid's shape: {batch_pred_tkid.shape}")
-    
+
     # print(batch_is_mask.type())
     # print(batch_is_mask.device)
     # print(batch_pred_tkid.device)
@@ -97,7 +101,10 @@ def main():
     )
 
     out_tks = tknzr.batch_dec(out_ids.tolist(), rm_sp_tks=False)
-    ori_out_tks = tknzr.batch_dec(batch_pred_tkid.squeeze().tolist(), rm_sp_tks=False)
+
+    ori_out_tks = tknzr.batch_dec(
+        batch_pred_tkid.squeeze().tolist(), rm_sp_tks=False)
+
     mask_tks = tknzr.batch_dec(batch_mask_tkids.tolist(), rm_sp_tks=False)
     target_tks = tknzr.batch_dec(batch_target_tkids.tolist(), rm_sp_tks=False)
     # print("Inference:")
@@ -116,7 +123,7 @@ def main():
         l_pred = tknzr.tknz(pred)
         l_ori_pred = tknzr.tknz(ori_pred)
         print('<tr><th>text</th><th>target</th><th>pred</th><th>ori_pred</th></tr>')
-        for a,b,c,d in zip(l_text, l_target, l_pred, l_ori_pred):
+        for a, b, c, d in zip(l_text, l_target, l_pred, l_ori_pred):
             if b != "<pad>":
                 count += 1
                 if b == d:
@@ -127,31 +134,35 @@ def main():
                     mask_acc += 1
                 else:
                     c += "<ERROR>"
-            
+
             print('<tr>')
-            print(f'<td>{html.escape(a)}</td><td>{html.escape(b)}</td><td>{html.escape(c)}</td><td>{html.escape(d)}</td>')
+            print(
+                f'<td>{html.escape(a)}</td><td>{html.escape(b)}</td><td>{html.escape(c)}</td><td>{html.escape(d)}</td>')
             print('</tr>')
-            
+
     print('</table>')
-    
-    print(f"<div>predict mask accuracy:{mask_acc/mask_count}, number of error:{mask_count-mask_acc}</div>")
-    print(f"<div>predict all tokens accuracy:{all_acc/count}, number of error:{count-all_acc}</div>")
-        # r_text = text.replace("<mask>", "<b style=\"color:lightgreen\">m</b>")
-        # print(f'<div style="border: 1px solid black;">{r_text}</div>')
-        # print(f'<div style="border: 1px solid black;">{target}</div>')
-        # print(f'<div style="border: 1px solid black;">{pred}</div>')
-        # print(f"input:\n{text}")
-        # print(f"target:\n{target}")
-        # print(f"pred:\n{pred}")
+
+    print(
+        f"<div>predict mask accuracy:{mask_acc/mask_count}, number of error:{mask_count-mask_acc}</div>")
+    print(
+        f"<div>predict all tokens accuracy:{all_acc/count}, number of error:{count-all_acc}</div>")
+    # r_text = text.replace("<mask>", "<b style=\"color:lightgreen\">m</b>")
+    # print(f'<div style="border: 1px solid black;">{r_text}</div>')
+    # print(f'<div style="border: 1px solid black;">{target}</div>')
+    # print(f'<div style="border: 1px solid black;">{pred}</div>')
+    # print(f"input:\n{text}")
+    # print(f"target:\n{target}")
+    # print(f"pred:\n{pred}")
     # print('</div>')
+
 
 if __name__ == '__main__':
     main()
 
 """
 CUDA_VISIBLE_DEVICES=0 python infer_mlm_model.py \
-    --ckpt 1000 \
-    --exp_name simple_test_100 \
+    --ckpt 200000 \
+    --exp_name n10_m7_p10_v2.3 \
     --k 1 \
-    --seed 42 
+    --seed 42 >>alldata.html
 """

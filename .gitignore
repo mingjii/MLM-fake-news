@@ -4,6 +4,7 @@ exp
 log
 exp_news.py
 *.html
+*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

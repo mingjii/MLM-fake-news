@@ -109,7 +109,8 @@ def main():
     pre_avg_loss = 0.0
     avg_loss = 0.0
     step += step % cfg.log_step
-    
+    accumulation_steps = cfg.step_size / cfg.batch_size
+    accumulation_count = 0
 
     for epoch in range(start_epoch, args.n_epoch):
         tqdm_dldr = tqdm(
@@ -127,40 +128,41 @@ def main():
                 batch_target_tkids=batch_target_tkids.to(device),
                 batch_is_mask=batch_is_mask.to(device),
             )
-            avg_loss += loss.item()
+            avg_loss += loss.item() / accumulation_steps
 
             loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(),
-                max_norm=cfg.max_norm,
-            )
-
-            optim.step()
-            optim.zero_grad()
-
-            step += 1
-
-            if step % cfg.ckpt_step == 0:
-                model.save(ckpt=step, exp_name=cfg.exp_name)
-
-            if step % cfg.log_step == 0:
-                avg_loss = avg_loss / cfg.log_step
-
-                # Log on tensorboard
-                writer.add_scalar(
-                    f'loss',
-                    avg_loss,
-                    step,
+            accumulation_count += 1
+            if accumulation_count == accumulation_steps:
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(),
+                    max_norm=cfg.max_norm,
                 )
+                optim.step()
+                optim.zero_grad()
+                step += 1
+                accumulation_count = 0
 
-                # Refresh log performance.
-                pre_avg_loss = avg_loss
-                avg_loss = 0.0
+                if step % cfg.ckpt_step == 0:
+                    model.save(ckpt=step, exp_name=cfg.exp_name)
 
-                tqdm_dldr.set_description(
-                    f'epoch: {epoch}, loss: {pre_avg_loss:.6f}'
-                )
+                if step % cfg.log_step == 0:
+                    avg_loss = avg_loss / cfg.log_step
+
+                    # Log on tensorboard
+                    writer.add_scalar(
+                        f'loss',
+                        avg_loss,
+                        step,
+                    )
+
+                    # Refresh log performance.
+                    pre_avg_loss = avg_loss
+                    avg_loss = 0.0
+
+                    tqdm_dldr.set_description(
+                        f'epoch: {epoch}, loss: {pre_avg_loss:.6f}'
+                    )
 
     # Save last checkpoint.
     model.save(ckpt=step, exp_name=cfg.exp_name)
