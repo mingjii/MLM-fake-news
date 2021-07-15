@@ -188,14 +188,14 @@ if __name__ == '__main__':
 
 """
 python create_mlm_dataset.py \
-    --exp_name "mask_data_len512_pmask5_mlen7_n5_2w" \
+    --exp_name "mask_data_n10_m7_p10_v2.3" \
     --dataset news \
     --file_name "news_v2.3.db" \
     --max_seq_len 512 \
-    --n_epoch 5 \
-    --n_sample 20000 \
-    --seed 42 \
-    --p_mask 0.05 \
+    --n_epoch 10 \
+    --n_sample -1 \
+    --seed 12 \
+    --p_mask 0.1 \
     --p_len 0.2 \
     --max_span_len 7 \
     --tknzr_exp_name "tknzr_news_min6_v2.3"

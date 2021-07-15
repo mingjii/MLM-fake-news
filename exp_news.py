@@ -1,64 +1,32 @@
 import os
 
-# os.system(f'CUDA_VISIBLE_DEVICES=1 python train_mlm_model.py \
-#     --batch_size 20 \
-#     --beta1 0.9 \
-#     --beta2 0.999 \
-#     --ckpt_step 10000 \
-#     --d_ff 2048 \
-#     --d_hid 768 \
-#     --dataset_exp_name "mask_data_len512_pmask5_mlen7_n5_2w" \
-#     --eps 1e-8 \
-#     --exp_name test_p5_l7_n5_10w \
-#     --log_step 50 \
-#     --lr 5e-5 \
-#     --max_norm 5.0 \
-#     --max_seq_len 512 \
-#     --model transformer \
-#     --n_epoch 50 \
-#     --n_head 8 \
-#     --n_hid_lyr 6 \
-#     --n_sample -1 \
-#     --p_hid 0.0 \
-#     --seed 42 \
-#     --wd 1e-2'
-#           )
-
 
 exp_pairs = [
-    ("data_1w/mask_data_len512_pmask15_mlen10_n5_1w", "test_1w/simple_test_mask10_pmask15_1w"),
-    ("data_1w/mask_data_len512_pmask15_mlen7_n5_1w", "test_1w/simple_test_mask7_pmask15_1w"),
-    ("data_1w/mask_data_len512_pmask15_mlen4_n5_1w", "test_1w/simple_test_mask4_pmask15_1w"),
-    ("data_1w/mask_data_len512_pmask10_mlen10_n5_1w", "test_1w/simple_test_mask10_pmask10_1w"),
-    ("data_1w/mask_data_len512_pmask10_mlen7_n5_1w", "test_1w/simple_test_mask7_pmask10_1w"),
-    ("data_1w/mask_data_len512_pmask10_mlen4_n5_1w", "test_1w/simple_test_mask4_pmask10_1w"),
-    ("data_1w/mask_data_len512_pmask5_mlen10_n5_1w", "test_1w/simple_test_mask10_pmask5_1w"),
-    ("data_1w/mask_data_len512_pmask5_mlen7_n5_1w", "test_1w/simple_test_mask7_pmask5_1w"),
-    ("data_1w/mask_data_len512_pmask5_mlen4_n5_1w", "test_1w/simple_test_mask4_pmask5_1w"),
+    ("mask_data_n10_m7_p10_v2.3", "n10_m7_p10_v2.3"),
     ]
 for data_name, exp_name in exp_pairs:
-    os.system(f'CUDA_VISIBLE_DEVICES=1 python train_mlm_model.py \
-        --batch_size 40 \
+    os.system(f'python train_mlm_model.py \
+        --batch_size 168 \
         --beta1 0.9 \
-        --beta2 0.99 \
-        --ckpt_step 1250 \
+        --beta2 0.999 \
+        --ckpt_step 100000 \
         --d_ff 2048 \
         --d_hid 768 \
         --dataset_exp_name "{data_name}" \
         --eps 1e-8 \
         --exp_name "{exp_name}" \
-        --log_step 50 \
-        --lr 5e-5 \
+        --log_step 200 \
+        --lr 1e-4 \
         --max_norm 3.0 \
         --max_seq_len 512 \
         --model transformer \
-        --n_epoch 60 \
+        --n_epoch 50 \
         --n_head 8 \
-        --n_hid_lyr 3 \
+        --n_hid_lyr 6 \
         --n_sample -1 \
         --p_hid 0.0 \
-        --seed 12 \
-        --wd 1e-2'
+        --seed 40 \
+        --wd 1e-1'
             )
 
 
