@@ -8,6 +8,7 @@ import sentencepiece as spm
 from collections import Counter
 from typing import ClassVar, Dict, List, Optional, Sequence
 import util.path
+import util.cfg
 
 
 def trunc_to_max(seq, *, max_seq_len=-1):
@@ -48,7 +49,7 @@ class Tknzr_sentPiece:
             is_uncased: bool,
             vocab_size: int,
             char_coverage: float,
-            model_name: Optional[str] = None,
+            exp_name: Optional[str] = None,
             **kwargs: Optional[Dict],
     ):
         if not isinstance(is_uncased, bool):
@@ -57,19 +58,34 @@ class Tknzr_sentPiece:
         self.is_uncased = is_uncased
         self.vocab_size = vocab_size
         self.char_coverage = char_coverage
-        self.model_name = model_name
-        self.user_defined_symbols = [self.mask_tk, '<unk>', '<en>', '<num>']
+        self.user_defined_unk_tk = '<unk>'
+        self.whitespace_tk = '▁'
+        self.user_defined_unk_tkid = None
+        self.whitespace_tkid = None
+        self.user_defined_symbols = [
+            self.mask_tk,
+            self.user_defined_unk_tk,
+            '<en>',
+            '<num>'
+        ]
         for i in range(20):
             self.user_defined_symbols.append(f'<per{i}>')
             self.user_defined_symbols.append(f'<org{i}>')
             self.user_defined_symbols.append(f'<loc{i}>')
-            
-        if model_name:
+
+        model_path = os.path.join(util.path.EXP_PATH, exp_name)
+        model_file = os.path.join(model_path, self.file_name+'.model')
+        if os.path.exists(model_file):
+            if os.path.isdir(model_file):
+                raise FileExistsError(
+                    f'Tokenizer file path {model_file} is a directory.'
+                )
             self.processor = spm.SentencePieceProcessor()
-            self.processor.load(model_name)
-        else:
-            self.processor = spm.SentencePieceProcessor()
-        
+            self.processor.load(model_file)
+            self.user_defined_unk_tkid = self.processor.piece_to_id(
+                self.user_defined_unk_tk)
+            self.whitespace_tkid = self.processor.piece_to_id(
+                self.whitespace_tk)
 
     @classmethod
     def load(cls, exp_name: str):
@@ -79,32 +95,21 @@ class Tknzr_sentPiece:
         if not exp_name:
             raise ValueError('`exp_name` must be non-empty.')
 
-        file_path = os.path.join(util.path.EXP_PATH, exp_name, cls.file_name + '.model')
-        cfg_path = os.path.join(util.path.EXP_PATH, exp_name, 'cfg.json')
+        cfg_path = os.path.join(util.path.EXP_PATH, exp_name)
+        cfg_file = os.path.join(cfg_path, 'cfg.json')
 
-        if not os.path.exists(file_path):
+        if not os.path.exists(cfg_file):
             raise FileNotFoundError(
-                f'Tokenizer file path {file_path} does not exist.'
+                f'Tokenizer file path {cfg_file} does not exist.'
             )
 
-        if os.path.isdir(file_path):
+        if os.path.isdir(cfg_file):
             raise FileExistsError(
-                f'Tokenizer file path {file_path} is a directory.'
+                f'Tokenizer file path {cfg_file} is a directory.'
             )
 
-        if not os.path.exists(cfg_path):
-            raise FileNotFoundError(
-                f'Tokenizer file path {cfg_path} does not exist.'
-            )
-
-        if os.path.isdir(cfg_path):
-            raise FileExistsError(
-                f'Tokenizer file path {cfg_path} is a directory.'
-            )
-
-        with open(file_path, 'r', encoding='utf-8') as input_file:
+        with open(cfg_file, 'r', encoding='utf-8') as input_file:
             cfg = json.load(input_file)
-            cfg["model_name"] = file_path
             return cls(**cfg)
 
     def norm(self, txt: str) -> str:
@@ -121,14 +126,12 @@ class Tknzr_sentPiece:
         return txt
 
     def tknz(self, txt: str) -> List[str]:
-        """Tokenize based on character and special tokens."""
-        out = []
         txt = self.norm(txt)
 
         return self.processor.encode_as_pieces(txt)
 
     def dtknz(self, tks: Sequence[str]) -> str:
-        return self.processor.decode_pieces(tks)
+        return self.processor.decode_pieces(tks).strip()
 
     def enc(
             self,
@@ -140,14 +143,26 @@ class Tknzr_sentPiece:
         tkids = [self.cls_tkid]
 
         # Convert tokens into token ids.
-        tkids += self.processor.encode_as_ids(norm(txt))
+        temp = self.processor.encode_as_ids(self.norm(txt))
+        if len(temp) > 0 and temp[0] == self.whitespace_tkid:
+            temp = temp[1:]
+        tkids += temp
 
         # Append `[SEP]` token id.
         tkids.append(self.sep_tkid)
 
         if txt_pair != '':
             # Convert tokens into token ids.
-            tkids += self.processor.encode_as_ids(norm(txt_pair))
+            temp = self.processor.encode_as_ids(self.norm(txt_pair))
+            if len(temp) > 0 and temp[0] == self.whitespace_tkid:
+                temp = temp[1:]
+            tkids += temp
+            # Append `[SEP]` token id.
+            tkids.append(self.sep_tkid)
+
+        # Replace user_defined unkown token(<unk>) to default unkown token([unk])
+        tkids = [
+            self.unk_tkid if x == self.user_defined_unk_tkid else x for x in tkids]
 
         # First truncate sequence to maximum sequence length, then pad sequence
         # to maximum sequence length.
@@ -174,10 +189,15 @@ class Tknzr_sentPiece:
             ]
             # Filter out <cls> and <pad>.
             tkids = list(filter(lambda tkid: tkid not in sp_tkids, tkids))
+            # Replace [sep] to whitespace
+            tkids = [self.whitespace_tkid if x ==
+                     self.sep_tkid else x for x in tkids]
 
-        text = self.processor.decode_ids(tkids)
+        # text = self.processor.decode_ids(tkids)
+        text = ''.join([self.processor.id_to_piece(x) if x !=
+                       self.whitespace_tkid else ' ' for x in tkids])
 
-        return text.replace('<sep>', ' ')
+        return text.strip()
 
     def batch_enc(
             self,
@@ -229,27 +249,30 @@ class Tknzr_sentPiece:
         data_file: str,
         exp_name: str,
     ) -> None:
-        data_path = os.path.join(util.path.DATA_PATH, data_file)
+        data_file = os.path.join(util.path.DATA_PATH, data_file)
         model_name = os.path.join(util.path.EXP_PATH, exp_name, self.file_name)
 
         spm.SentencePieceTrainer.train(
-            f"--input={data_path} \
+            f"--input={data_file} \
             --model_prefix={model_name} \
             --vocab_size={self.vocab_size} \
             --character_coverage={self.char_coverage} \
             --user_defined_symbols={','.join(self.user_defined_symbols)} \
-            --pad_id={self.pad_tkid} \
-            --unk_id={self.unk_tkid} \
             --bos_id={self.cls_tkid} \
             --eos_id={self.sep_tkid} \
-            --pad_piece={self.pad_tk} \
-            --unk_piece={self.unk_tk} \
+            --pad_id={self.pad_tkid} \
+            --unk_id={self.unk_tkid} \
             --bos_piece={self.cls_tk} \
             --eos_piece={self.sep_tk} \
+            --pad_piece={self.pad_tk} \
+            --unk_piece={self.unk_tk} \
             --unk_surface={self.unk_tk}")
-        model_name += '.model'
-        self.model_name = model_name
-        self.processor.load(model_name)
+        self.processor = spm.SentencePieceProcessor()
+        self.processor.load(model_name+'.model')
+        self.user_defined_unk_tkid = self.processor.piece_to_id(
+            self.user_defined_unk_tk)
+        self.whitespace_tkid = self.processor.piece_to_id(
+            self.whitespace_tk)
 
     def vocab_size(self) -> int:
         return self.processor.get_piece_size()

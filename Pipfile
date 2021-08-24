@@ -11,6 +11,10 @@ tensorboard = "*"
 matplotlib = "*"
 seaborn = "*"
 sentencepiece = "*"
+tokenizers = "*"
+sphinx = "*"
+sphinx-rtd-theme = "*"
+setuptools-rust = "*"
 
 [dev-packages]
 autopep8 = "*"

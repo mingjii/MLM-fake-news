@@ -54,6 +54,7 @@ def main():
     # Load dataset and dataset config.
     dset = MLMDataset(exp_name=args.dataset_exp_name, n_sample=args.n_sample)
     dset_cfg = util.cfg.load(exp_name=args.dataset_exp_name)
+    print(dset[0])
 
     def collate_fn(batch):
         batch_mask_tkids = []
@@ -78,7 +79,10 @@ def main():
     # Load tokenizer and config.
     tknzr_cfg = util.cfg.load(exp_name=dset_cfg.tknzr_exp_name)
     tknzr = TKNZR_OPT[tknzr_cfg.tknzr].load(exp_name=tknzr_cfg.exp_name)
-
+    print(tknzr.dec(dset[0][0], rm_sp_tks=True))
+    print(tknzr.dec(dset[0][1], rm_sp_tks=True))
+    print(tknzr.tknz('專家也證實,這樣下去會對男性造成<num>大危害。<num>、誘發血精:男性正常的精液是灰白色或者略帶黃色的'))
+    exit()
     device = torch.device('cpu')
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -165,7 +169,7 @@ def main():
                 if step <= args.warmup_step:
                     warmup_factor = min(1.0, step/args.warmup_step)
                     for parameters in optim.param_groups:
-                        parameters['lr'] = args.lr*warmup_factor 
+                        parameters['lr'] = args.lr*warmup_factor
 
                 if step % args.ckpt_step == 0:
                     model.save(ckpt=step, exp_name=args.exp_name)
