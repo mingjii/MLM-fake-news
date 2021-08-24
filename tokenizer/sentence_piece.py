@@ -56,7 +56,7 @@ class Tknzr_sentPiece:
             raise TypeError('`is_uncased` must be an instance of `bool`.')
 
         self.is_uncased = is_uncased
-        self.vocab_size = vocab_size
+        self.num_vocab = vocab_size
         self.char_coverage = char_coverage
         self.user_defined_unk_tk = '<unk>'
         self.whitespace_tk = '▁'
@@ -255,7 +255,7 @@ class Tknzr_sentPiece:
         spm.SentencePieceTrainer.train(
             f"--input={data_file} \
             --model_prefix={model_name} \
-            --vocab_size={self.vocab_size} \
+            --vocab_size={self.num_vocab} \
             --character_coverage={self.char_coverage} \
             --user_defined_symbols={','.join(self.user_defined_symbols)} \
             --bos_id={self.cls_tkid} \
