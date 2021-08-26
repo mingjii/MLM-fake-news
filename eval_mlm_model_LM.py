@@ -77,59 +77,58 @@ def main():
         batch_target_tkids = torch.LongTensor(batch_target_tkids).to(device)
         batch_is_mask = torch.BoolTensor(batch_is_mask).to(device)
 
-        output = []
-        for mask_tkids, target_tkids, is_mask in zip(batch_mask_tkids, batch_target_tkids, batch_is_mask):
-            # S, 1
-            output_tkids = mask_tkids.clone()
-            for i in range(exp_cfg.max_seq_len):
-                if not is_mask[i]:
-                    continue
+        mask_ids = [x.nonzero(as_tuple=True)[0].tolist()
+                    for x in batch_is_mask]
+        # get the max number of mask on sequences
+        max_mask = max([len(x) for x in mask_ids])
+        batch_out_tks = batch_mask_tkids.detach()
+        for i in range(max_mask):
+            # create a tensor that decide what token need to be filled
+            fill_ids = torch.zeros_like(batch_mask_tkids).type(
+                torch.BoolTensor).to(device)
+            for B, x in enumerate(mask_ids):
+                if len(x) > i:
+                    fill_ids[B][x[i]] = True
 
-                # In: 1, S
-                # Out: S, V
-                out_probs = model.pred(output_tkids.unsqueeze(0)).squeeze()
+            # In: B, S
+            # Out: B, S, V
+            batch_out_probs = model.pred(batch_out_tks)
 
-                answer_id = target_tkids[i]
-                for n in topn_acc.keys():
-                    (
-                        topk_tkid_probs,
-                        topk_tkid,
-                    ) = out_probs[i].topk(
-                        k=n,
-                        dim=-1,
-                    )
-                    if answer_id in topk_tkid:
-                        topn_acc[n] += 1
-                # In: V
-                # Out: K
-                (
-                    topk_tkid_probs,
-                    topk_tkid,
-                ) = out_probs[i].topk(
-                    k=args.k,
-                    dim=-1,
-                )
+            # In: B, S, V
+            # Out: B, S, K
+            (
+                batch_topk_tkid_probs,
+                batch_topk_tkid,
+            ) = batch_out_probs.topk(
+                k=args.k,
+                dim=-1,
+            )
 
-                # 1
-                pred_tkid_cand_idx = torch.multinomial(
-                    topk_tkid_probs, num_samples=1)
+            # In: B, S, K
+            # Out: B, S, 1
+            batch_pred_tkid_cand_idx = torch.stack(
+                [torch.multinomial(x, num_samples=1)
+                 for x in batch_topk_tkid_probs]
+            )
 
-                # 1
-                pred_tkid = torch.gather(
-                    topk_tkid,
-                    -1,
-                    pred_tkid_cand_idx,
-                )
+            # In: B, S, 1
+            # Out: B, S, 1
+            batch_pred_tkid = torch.gather(
+                batch_topk_tkid,
+                -1,
+                batch_pred_tkid_cand_idx
+            )
 
-                output_tkids[i] = pred_tkid
-
-            output.append(output_tkids.tolist())
-
+            batch_out_tks = torch.where(
+                fill_ids,
+                batch_pred_tkid.squeeze(),
+                batch_out_tks
+            )
         # out_tks = tknzr.batch_dec(out_ids.tolist(), rm_sp_tks=False)
         # ori_out_tks = tknzr.batch_dec(batch_pred_tkid.squeeze().tolist(), rm_sp_tks=False)
         # mask_tks = tknzr.batch_dec(batch_mask_tkids.tolist(), rm_sp_tks=False)
         # target_tks = tknzr.batch_dec(batch_target_tkids.tolist(), rm_sp_tks=False)
-        output = torch.LongTensor(output).to(device)
+        output = torch.LongTensor(batch_out_tks).to(device)
         mask_count += batch_is_mask.sum().item()
         mask_acc += torch.sum((output == batch_target_tkids)
                               * batch_is_mask).item()

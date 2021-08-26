@@ -28,7 +28,7 @@ def main():
     exp_cfg = util.cfg.load(exp_name=args.exp_name)
     # Load dataset and dataset config.
     dset = MLMDataset(exp_name=exp_cfg.dataset_exp_name,
-                      n_sample=exp_cfg.n_sample)
+                      n_sample=10000)
     dset_cfg = util.cfg.load(exp_name=exp_cfg.dataset_exp_name)
 
     # Load tokenizer and config.
@@ -62,44 +62,54 @@ def main():
     batch_target_tkids = torch.LongTensor(batch_target_tkids).to(device)
     batch_is_mask = torch.BoolTensor(batch_is_mask).to(device)
 
-    output = []
-    for mask_tkids, is_mask in zip(batch_mask_tkids, batch_is_mask):
-        # S, 1
-        output_tkids = mask_tkids.clone()
-        for i in range(exp_cfg.max_seq_len):
-            if not is_mask[i]:
-                continue
+    mask_ids = [x.nonzero(as_tuple=True)[0].tolist() for x in batch_is_mask]
+    # get the max number of mask on sequences
+    max_mask = max([len(x) for x in mask_ids])
+    batch_out_tks = batch_mask_tkids.detach()
+    for i in range(max_mask):
+        # create a tensor that decide what token need to be filled
+        fill_ids = torch.zeros_like(batch_mask_tkids).type(
+            torch.BoolTensor).to(device)
+        for B, x in enumerate(mask_ids):
+            if len(x) > i:
+                fill_ids[B][x[i]] = True
 
-            # In: 1, S
-            # Out: S, V
-            out_probs = model.pred(output_tkids.unsqueeze(0)).squeeze()
+        # In: B, S
+        # Out: B, S, V
+        batch_out_probs = model.pred(batch_out_tks)
 
-            # In: V
-            # Out: K
-            (
-                topk_tkid_probs,
-                topk_tkid,
-            ) = out_probs[i].topk(
-                k=args.k,
-                dim=-1,
-            )
+        # In: B, S, V
+        # Out: B, S, K
+        (
+            batch_topk_tkid_probs,
+            batch_topk_tkid,
+        ) = batch_out_probs.topk(
+            k=args.k,
+            dim=-1,
+        )
 
-            # 1
-            pred_tkid_cand_idx = torch.multinomial(
-                topk_tkid_probs, num_samples=1)
+        # In: B, S, K
+        # Out: B, S, 1
+        batch_pred_tkid_cand_idx = torch.stack(
+            [torch.multinomial(x, num_samples=1)
+             for x in batch_topk_tkid_probs]
+        )
 
-            # 1
-            pred_tkid = torch.gather(
-                topk_tkid,
-                -1,
-                pred_tkid_cand_idx,
-            )
+        # In: B, S, 1
+        # Out: B, S, 1
+        batch_pred_tkid = torch.gather(
+            batch_topk_tkid,
+            -1,
+            batch_pred_tkid_cand_idx
+        )
 
-            output_tkids[i] = pred_tkid
+        batch_out_tks = torch.where(
+            fill_ids,
+            batch_pred_tkid.squeeze(),
+            batch_out_tks
+        )
 
-        output.append(output_tkids.tolist())
-
-    batch_out_tks = tknzr.batch_dec(output, rm_sp_tks=False)
+    batch_out_tks = tknzr.batch_dec(batch_out_tks.tolist(), rm_sp_tks=False)
     batch_mask_tks = tknzr.batch_dec(
         batch_mask_tkids.tolist(), rm_sp_tks=False)
     batch_target_tks = tknzr.batch_dec(
@@ -128,17 +138,6 @@ def main():
 
     print('</table>')
 
-    # print(f"<div>predict mask accuracy:{mask_acc/mask_count}, number of error:{mask_count-mask_acc}</div>")
-    # print(f"<div>predict all tokens accuracy:{all_acc/count}, number of error:{count-all_acc}</div>")
-    # r_text = text.replace("<mask>", "<b style=\"color:lightgreen\">m</b>")
-    # print(f'<div style="border: 1px solid black;">{r_text}</div>')
-    # print(f'<div style="border: 1px solid black;">{target}</div>')
-    # print(f'<div style="border: 1px solid black;">{pred}</div>')
-    # print(f"input:\n{text}")
-    # print(f"target:\n{target}")
-    # print(f"pred:\n{pred}")
-    # print('</div>')
-
 
 if __name__ == '__main__':
     main()
@@ -148,5 +147,5 @@ CUDA_VISIBLE_DEVICES=0 python infer_mlm_model_LM.py \
     --ckpt 200000 \
     --exp_name n10_m7_p10_v2.3 \
     --k 1 \
-    --seed 42 >>alldata_LM.html
+    --seed 42 >>test_LM2.html
 """
