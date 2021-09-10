@@ -145,7 +145,7 @@ if __name__ == '__main__':
 """
 CUDA_VISIBLE_DEVICES=0 python infer_mlm_model_LM.py \
     --ckpt 200000 \
-    --exp_name n10_m7_p10_v2.3 \
+    --exp_name sentPiece/n10_m4_p10_v2.3 \
     --k 1 \
-    --seed 42 >>test_LM2.html
+    --seed 42 >>sent_LM.html
 """
