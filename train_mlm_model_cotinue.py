@@ -1,5 +1,6 @@
 import argparse
 import random
+import math
 import torch
 import torch.optim
 from tqdm import tqdm
@@ -24,7 +25,6 @@ def main():
     args = parser.parse_args()
 
     cfg = util.cfg.load(exp_name=args.exp_name)
-    start_epoch = cfg.n_epoch
     cfg.seed = args.seed
 
     # Random seed initialization.
@@ -112,6 +112,7 @@ def main():
     accumulation_steps = cfg.step_size / cfg.batch_size
     accumulation_count = 0
 
+    start_epoch = math.ceil(step/(len(dset)/cfg.step_size))
     for epoch in range(start_epoch, args.n_epoch):
         tqdm_dldr = tqdm(
             dldr,
@@ -179,9 +180,9 @@ if __name__ == '__main__':
 
 
 """
-CUDA_VISIBLE_DEVICES=1 python train_mlm_model_cotinue.py \
-    --exp_name test_model \
+CUDA_VISIBLE_DEVICES=0 python train_mlm_model_cotinue.py \
+    --exp_name sentPiece/n10_m4_p10_v2.3 \
     --ckpt -1 \
-    --n_epoch 50 \
+    --n_epoch 40 \
     --seed 32 
 """
