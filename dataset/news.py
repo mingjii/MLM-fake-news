@@ -34,7 +34,7 @@ class Seq2SeqNewsDataset(torch.utils.data.Dataset):
         # Get all news title and article.
         count = 0
         for title, article in iter(cursor.execute(
-                'SELECT title, article from news_table;')):
+                'SELECT title, article from parsed_news;')):
             count += 1
             if count > n_sample and n_sample != -1:
                 break

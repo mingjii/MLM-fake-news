@@ -48,7 +48,7 @@ class Tknzr_sentPiece:
             *,
             is_uncased: bool,
             vocab_size: int,
-            char_coverage: float,
+            char_coverage: float=0.9995,
             exp_name: Optional[str] = None,
             **kwargs: Optional[Dict],
     ):

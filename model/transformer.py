@@ -167,7 +167,14 @@ class TransformerModel(nn.Module):
         # out shape: (B, S, V)
         return F.softmax(logits, dim=-1)
 
-    def save(self, ckpt: int, exp_name: str) -> None:
+    def save(
+        self,
+        ckpt: int,
+        exp_name: str,
+        loss: int,
+        epoch: int,
+        optimizer,
+    ) -> None:
         file_dir = os.path.join(util.path.EXP_PATH, exp_name)
         file_path = os.path.join(file_dir, f'model-{ckpt}.pt')
 
@@ -181,7 +188,16 @@ class TransformerModel(nn.Module):
             raise FileExistsError(f'{file_path} is a directory.')
 
         # Save model parameters in zip compressed pickle.
-        torch.save(self.state_dict(), file_path)
+        torch.save(
+            {
+                'model':self.state_dict(),
+                'optimizer':optimizer.state_dict(),
+                'loss': loss,
+                'step': ckpt,
+                'epoch': epoch
+            },
+            file_path
+        )
 
     @classmethod
     def load(cls, ckpt: int, exp_name: str, **kwargs: Optional[Dict]):

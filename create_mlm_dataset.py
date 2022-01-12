@@ -11,9 +11,66 @@ import random
 import pickle
 from dataset.mlm import MLMDataset
 from tqdm import tqdm
+import multiprocessing
+from tqdm.contrib.concurrent import process_map
 
+def d2mlm(d, sp_tkids, tknzr, args):
+    # print(args)
+    title, article = d
+    target_tkids = tknzr.enc(
+        txt=title,
+        txt_pair=article,
+        max_seq_len=args.max_seq_len
+    )
+
+    mask_tkids = []
+    is_mask = []
+    mask_span_count = 0
+
+    for tkid in target_tkids:
+        mask_span_count -= 1
+
+        # Masking no more than args.p_mask x 100% tokens.
+        if sum(is_mask) / len(target_tkids) >= args.p_mask:
+            mask_tkids.append(tkid)
+            is_mask.append(0)
+            continue
+
+        # Skip masking if current token is special token.
+        if tkid in sp_tkids:
+            mask_tkids.append(tkid)
+            is_mask.append(0)
+            continue
+
+
+        # Mask current token based on masking distribution.
+        if util.dist.mask(p=args.p_mask):
+            # Record how many tokens to be mask (span masking).
+            mask_span_count = util.dist.length(
+                p=args.p_len,
+                max_span_len=args.max_span_len
+            )
+            mask_tkids.append(tknzr.mask_tkid)
+            is_mask.append(1)
+            continue
+
+        # Skip masking current token.
+        mask_tkids.append(tkid)
+        is_mask.append(0)
+
+    # Skipping no masking sample.
+    # This is a extreme case which happened with very low possibility.
+    if sum(is_mask) == 0:
+        return None
+
+    b_mask_tkids = pickle.dumps(mask_tkids)
+    b_target_tkids = pickle.dumps(target_tkids)
+    b_is_mask = pickle.dumps(is_mask)
+    
+    return b_mask_tkids,b_target_tkids,b_is_mask
 
 def main():
+# if True:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--exp_name',
@@ -86,7 +143,7 @@ def main():
     util.cfg.save(args)
 
     cfg = util.cfg.load(exp_name=args.tknzr_exp_name)
-    tknzr = TKNZR_OPT[cfg.tknzr].load(exp_name=args.tknzr_exp_name)
+    tknzr = TKNZR_OPT[cfg.tknzr](exp_name=args.tknzr_exp_name)
     sp_tkids = [tknzr.cls_tkid, tknzr.sep_tkid, tknzr.pad_tkid]
 
     # Load dataset.
@@ -107,96 +164,58 @@ def main():
     conn = sqlite3.connect(file_path)
     cur = conn.cursor()
     cur.execute('''
-        CREATE TABLE mlm (mask_tkids BLOB, target_tkids BLOB, is_mask BLOB)
+       CREATE TABLE mlm (mask_tkids BLOB, target_tkids BLOB, is_mask BLOB)
     ''')
-
-    util.seed.set_seed(args.seed)
-
+    print("pairing data....")
+    data = list(map(lambda d: (d, sp_tkids, tknzr, args), tqdm(dset)))
+    
     # Reinitialize random seeds in each iteration.
+    print("creating data....")
+    count = 0
     epoch = 0
+    util.seed.set_seed(args.seed)
     for seed in [random.randint(0, 2147483647) for _ in range(args.n_epoch)]:
         util.seed.set_seed(seed)
-
+        print(f'epoch: {epoch}')
+        print("creating to a list..")
         epoch += 1
-        for title, article in tqdm(dset, desc=f'epoch: {epoch}'):
+        # r= process_map(d2mlm, data, chunksize=100, max_workers=32, smoothing=0)
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            result = pool.starmap(d2mlm, tqdm(data, smoothing=0), chunksize=1024)
 
-            target_tkids = tknzr.enc(
-                txt=title,
-                txt_pair=article,
-                max_seq_len=args.max_seq_len
-            )
-
-            mask_tkids = []
-            is_mask = []
-            mask_span_count = 0
-            for tkid in target_tkids:
-                mask_span_count -= 1
-
-                # Masking no more than args.p_mask x 100% tokens.
-                if sum(is_mask) / len(target_tkids) >= args.p_mask:
-                    mask_tkids.append(tkid)
-                    is_mask.append(0)
-                    continue
-
-                # Skip masking if current token is special token.
-                if tkid in sp_tkids:
-                    mask_tkids.append(tkid)
-                    is_mask.append(0)
-                    continue
-
-                # Mask tokens in span.
-                if mask_span_count > 0:
-                    mask_tkids.append(tknzr.mask_tkid)
-                    is_mask.append(1)
-                    continue
-
-                # Mask current token based on masking distribution.
-                if util.dist.mask(p=args.p_mask):
-                    # Record how many tokens to be mask (span masking).
-                    mask_span_count = util.dist.length(
-                        p=args.p_len,
-                        max_span_len=args.max_span_len
-                    )
-                    mask_tkids.append(tknzr.mask_tkid)
-                    is_mask.append(1)
-                    continue
-
-                # Skip masking current token.
-                mask_tkids.append(tkid)
-                is_mask.append(0)
-
-            # Skipping no masking sample.
-            # This is a extreme case which happened with very low possibility.
-            if sum(is_mask) == 0:
-                continue
-
-            b_mask_tkids = pickle.dumps(mask_tkids)
-            b_target_tkids = pickle.dumps(target_tkids)
-            b_is_mask = pickle.dumps(is_mask)
-
+        print("write the list to DB..")
+        for b_mask_tkids,b_target_tkids,b_is_mask in tqdm(result):
+            count += 1
             cur.execute('INSERT INTO mlm VALUES (?, ?, ?)',
-                        (b_mask_tkids, b_target_tkids, b_is_mask))
+                (b_mask_tkids, b_target_tkids, b_is_mask))
+            if count == 10000:
+                conn.commit()
+                count = 0
+        # print(r[-1])
+        #desc=f'epoch: {epoch}',
+        # print(len(r))
 
-        conn.commit()
 
+    conn.commit()
     conn.close()
 
 
 if __name__ == '__main__':
-    main()
+   main()
 
 
 """
+numactl --membind 1 --cpunodebind 1 \
 python create_mlm_dataset.py \
-    --exp_name "mask_data_n10_m7_p10_v2.3" \
+    --exp_name "mask_data_merged_2M" \
     --dataset news \
-    --file_name "news_v2.3.db" \
+    --file_name "merged_cna_ettoday_storm.db" \
     --max_seq_len 512 \
-    --n_epoch 10 \
+    --n_epoch 3 \
     --n_sample -1 \
     --seed 12 \
-    --p_mask 0.1 \
+    --p_mask 0.15 \
     --p_len 0.2 \
-    --max_span_len 7 \
-    --tknzr_exp_name "tknzr_news_min6_v2.3"
+    --max_span_len 5 \
+    --tknzr_exp_name "tknzr_sentPiece_3w5"
 """

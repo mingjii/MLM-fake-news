@@ -20,8 +20,9 @@ def main():
     parser.add_argument('--model', required=True, type=str)
     parser.add_argument('--exp_name', required=True, type=str)
     parser.add_argument('--dataset_exp_name', required=True, type=str)
+    parser.add_argument('--checkpoint', required=False, default=None, type=str)
     parser.add_argument('--batch_size', required=True, type=int)
-    parser.add_argument('--ckpt_step', required=True, type=int)
+    parser.add_argument('--save_step', required=True, type=int)
     parser.add_argument('--warmup_step', required=True, type=int)
     parser.add_argument('--step_size', required=True, type=int)
     parser.add_argument('--lr', required=True, type=float)
@@ -54,7 +55,6 @@ def main():
     # Load dataset and dataset config.
     dset = MLMDataset(exp_name=args.dataset_exp_name, n_sample=args.n_sample)
     dset_cfg = util.cfg.load(exp_name=args.dataset_exp_name)
-    print(dset[0])
 
     def collate_fn(batch):
         batch_mask_tkids = []
@@ -78,11 +78,8 @@ def main():
 
     # Load tokenizer and config.
     tknzr_cfg = util.cfg.load(exp_name=dset_cfg.tknzr_exp_name)
-    tknzr = TKNZR_OPT[tknzr_cfg.tknzr].load(exp_name=tknzr_cfg.exp_name)
-    print(tknzr.dec(dset[0][0], rm_sp_tks=True))
-    print(tknzr.dec(dset[0][1], rm_sp_tks=True))
-    print(tknzr.tknz('專家也證實,這樣下去會對男性造成<num>大危害。<num>、誘發血精:男性正常的精液是灰白色或者略帶黃色的'))
-    exit()
+    tknzr = TKNZR_OPT[tknzr_cfg.tknzr](exp_name=tknzr_cfg.exp_name)
+
     device = torch.device('cpu')
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -135,11 +132,21 @@ def main():
     step = 0
     accumulation_steps = args.step_size / args.batch_size
     accumulation_count = 0
+    start_epoch = 0
 
-    for epoch in range(args.n_epoch):
+    # Load checkpoint
+    if args.checkpoint:
+        checkpoint = torch.load(args.checkpoint)
+        model.load_state_dict(checkpoint['model'])
+        optim.load_state_dict(checkpoint['optimizer'])
+        start_epoch = checkpoint['epoch']
+        step = checkpoint['step']
+        avg_loss = checkpoint['loss']
+
+    for epoch in range(start_epoch, args.n_epoch):
         tqdm_dldr = tqdm(
             dldr,
-            desc=f'epoch: {epoch}, loss: {pre_avg_loss:.6f}',
+            desc=f'epoch: {epoch}, loss: {avg_loss:.6f}',
         )
         for batch_mask_tkids, batch_target_tkids, batch_is_mask in tqdm_dldr:
             batch_mask_tkids = torch.LongTensor(batch_mask_tkids)
@@ -171,8 +178,14 @@ def main():
                     for parameters in optim.param_groups:
                         parameters['lr'] = args.lr*warmup_factor
 
-                if step % args.ckpt_step == 0:
-                    model.save(ckpt=step, exp_name=args.exp_name)
+                if step % args.save_step == 0:
+                    model.save(
+                        ckpt=step,
+                        exp_name=args.exp_name,
+                        loss=avg_loss,
+                        optimizer=optim,
+                        epoch=epoch,
+                    )
 
                 if step % args.log_step == 0:
                     avg_loss = avg_loss / args.log_step
@@ -189,13 +202,19 @@ def main():
                     )
 
                     # Refresh log performance.
-                    pre_avg_loss = avg_loss
+                    # pre_avg_loss = avg_loss
                     avg_loss = 0.0
 
-        if pre_avg_loss < 0.5 and pre_avg_loss != 0.0:
-            break
+        # if pre_avg_loss < 0.5 and pre_avg_loss != 0.0:
+        #     break
     # Save last checkpoint.
-    model.save(ckpt=step, exp_name=args.exp_name)
+    model.save(
+        ckpt=step,
+        exp_name=args.exp_name,
+        loss=avg_loss,
+        optimizer=optim,
+        epoch=epoch,
+    )
 
     # Close tensorboard logger.
     writer.close()

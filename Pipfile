@@ -12,9 +12,8 @@ matplotlib = "*"
 seaborn = "*"
 sentencepiece = "*"
 tokenizers = "*"
-sphinx = "*"
-sphinx-rtd-theme = "*"
-setuptools-rust = "*"
+torchvision = "*"
+torchaudio = "*"
 
 [dev-packages]
 autopep8 = "*"
