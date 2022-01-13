@@ -65,17 +65,25 @@ class TransformerModel(nn.Module):
         super().__init__()
 
         self.pad_tkid = tknzr.pad_tkid
-        self.pe = PositionalEncoding(
-            d_hid=d_hid,
-            p_hid=p_hid,
-            max_seq_len=max_seq_len
-        )
 
         self.emb = nn.Embedding(
-            num_embeddings=tknzr.vocab_size(),
+            num_embeddings=tknzr.vocab_size,
             embedding_dim=d_hid,
             padding_idx=tknzr.pad_tkid,
         )
+
+        # self.pe = PositionalEncoding(
+        #     d_hid=d_hid,
+        #     p_hid=p_hid,
+        #     max_seq_len=max_seq_len
+        # )
+        self.pe = nn.Embedding(
+            num_embeddings=max_seq_len + 1,
+            embedding_dim=d_hid,
+            padding_idx=max_seq_len,
+        )
+
+        self.drop = nn.Dropout(p=p_hid)
 
         layer = nn.TransformerEncoderLayer(
             d_model=d_hid,
@@ -101,7 +109,12 @@ class TransformerModel(nn.Module):
         # Pos embeddings.
         # in shape : (B, S, d_hid)
         # out shape: (B, S, d_hid)
-        x = self.pe(x)
+        # x = self.pe(x)
+        input_position = torch.arange(
+            batch_mask_tkids.shape[-1]
+        ).unsqueeze(dim=0).to(batch_mask_tkids.device)
+
+        x = self.drop(x + self.pe(input_position))
 
         # Create attention mask.
         # pad_mask Shape: (B, S)
@@ -174,6 +187,7 @@ class TransformerModel(nn.Module):
         loss: int,
         epoch: int,
         optimizer,
+        scheduler,
     ) -> None:
         file_dir = os.path.join(util.path.EXP_PATH, exp_name)
         file_path = os.path.join(file_dir, f'model-{ckpt}.pt')
@@ -192,6 +206,7 @@ class TransformerModel(nn.Module):
             {
                 'model':self.state_dict(),
                 'optimizer':optimizer.state_dict(),
+                'scheduler':scheduler.state_dict(),
                 'loss': loss,
                 'step': ckpt,
                 'epoch': epoch

@@ -5,6 +5,7 @@ import torch
 from tqdm import tqdm
 import util.path
 import multiprocessing
+import gc
 
 def load_db(data):
     return tuple(pickle.loads(x) for x in data)
@@ -65,6 +66,8 @@ class MLMDataset(torch.utils.data.Dataset):
         # print(len(result))
         self.all_mask_tkids, self.all_target_tkids, self.all_is_mask = list(zip(*result))
         conn.close()
+        del iter_data
+        gc.collect()
 
     def __getitem__(self, idx: int):
         return (
