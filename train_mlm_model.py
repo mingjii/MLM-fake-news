@@ -39,7 +39,7 @@ def main():
     parser.add_argument('--beta1', required=True, type=float)
     parser.add_argument('--beta2', required=True, type=float)
     parser.add_argument('--eps', required=True, type=float)
-    parser.add_argument('--max_norm', required=True, type=float)
+    # parser.add_argument('--max_norm', required=True, type=float)
     parser.add_argument('--wd', required=True, type=float)
     args = parser.parse_args()
 
@@ -119,9 +119,7 @@ def main():
     )
 
     # Loggin.
-    log_path = os.path.join(util.path.LOG_PATH, args.exp_name)
-    if not os.path.exists(log_path):
-        os.makedirs(log_path)
+    log_path = os.path.join(util.path.EXP_PATH, args.exp_name)
     writer = SummaryWriter(log_dir=log_path)
 
     # Log performance.
@@ -164,10 +162,10 @@ def main():
 
             accumulation_count += 1
             if accumulation_count == accumulation_steps:
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(),
-                    max_norm=args.max_norm,
-                )
+                # torch.nn.utils.clip_grad_norm_(
+                #     model.parameters(),
+                #     max_norm=args.max_norm,
+                # )
                 optim.step()
                 optim.zero_grad()
                 step += 1
@@ -222,3 +220,31 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+"""
+CUDA_VISIBLE_DEVICES=1 \
+python train_mlm_model.py \
+    --model transformer \
+    --exp_name mlm_2M_12_lry \
+    --dataset_exp_name mask_data_merged_2M \
+    --batch_size 32 \
+    --save_step 15000 \
+    --warmup_step 10000 \
+    --step_size 256 \
+    --lr 1e-4 \
+    --max_seq_len 400 \
+    --n_hid_lyr 12 \
+    --n_epoch 20 \
+    --n_head 8 \
+    --n_sample 4000000 \
+    --d_ff 2048 \
+    --d_hid 512 \
+    --p_hid 0.1 \
+    --log_step 100 \
+    --seed 2022 \
+    --beta1 0.9 \
+    --beta2 0.999 \
+    --eps 1e-08\
+    --wd 0.01 
+"""

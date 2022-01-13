@@ -207,11 +207,11 @@ if __name__ == '__main__':
 """
 numactl --membind 1 --cpunodebind 1 \
 python create_mlm_dataset.py \
-    --exp_name "mask_data_merged_2M" \
+    --exp_name "mask_data_merged_2M_1" \
     --dataset news \
     --file_name "merged_cna_ettoday_storm.db" \
     --max_seq_len 512 \
-    --n_epoch 3 \
+    --n_epoch 1 \
     --n_sample -1 \
     --seed 12 \
     --p_mask 0.15 \
