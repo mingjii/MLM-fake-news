@@ -5,6 +5,7 @@ import util.cfg
 import util.seed
 import util.dist
 import numpy as np
+import gc
 import sqlite3
 import os
 import random
@@ -184,13 +185,18 @@ def main():
             result = pool.starmap(d2mlm, tqdm(data, smoothing=0), chunksize=1024)
 
         print("write the list to DB..")
-        for b_mask_tkids,b_target_tkids,b_is_mask in tqdm(result):
+        for x in tqdm(result):
+            if x == None:
+                continue
+            b_mask_tkids,b_target_tkids,b_is_mask = x
             count += 1
             cur.execute('INSERT INTO mlm VALUES (?, ?, ?)',
                 (b_mask_tkids, b_target_tkids, b_is_mask))
-            if count == 10000:
+            if count == 100000:
                 conn.commit()
                 count = 0
+        del result
+        gc.collect()
         # print(r[-1])
         #desc=f'epoch: {epoch}',
         # print(len(r))
@@ -207,11 +213,11 @@ if __name__ == '__main__':
 """
 numactl --membind 1 --cpunodebind 1 \
 python create_mlm_dataset.py \
-    --exp_name "mask_data_merged_2M" \
+    --exp_name "mask_data_merged_2M_1" \
     --dataset news \
     --file_name "merged_cna_ettoday_storm.db" \
-    --max_seq_len 512 \
-    --n_epoch 3 \
+    --max_seq_len 400 \
+    --n_epoch 1 \
     --n_sample -1 \
     --seed 12 \
     --p_mask 0.15 \

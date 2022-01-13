@@ -2,7 +2,7 @@ import os
 import sqlite3
 
 import torch
-
+from tqdm import tqdm
 import util.path
 
 
@@ -28,19 +28,27 @@ class Seq2SeqNewsDataset(torch.utils.data.Dataset):
         # Get database cursor.
         cursor = conn.cursor()
 
-        self.titles = []
-        self.articles = []
-
         # Get all news title and article.
-        count = 0
-        for title, article in iter(cursor.execute(
-                'SELECT title, article from parsed_news;')):
-            count += 1
-            if count > n_sample and n_sample != -1:
-                break
-            self.titles.append(title)
-            self.articles.append(article)
 
+        # count = 0
+        # self.titles = []
+        # self.articles = []
+        # for title, article in iter(cursor.execute(
+        #         'SELECT title, article from parsed_news;')):
+        #     count += 1
+        #     if count > n_sample and n_sample != -1:
+        #         break
+        #     self.titles.append(title)
+        #     self.articles.append(article)
+        data = list(
+            cursor.execute(
+                'SELECT title, article from parsed_news;'
+            )
+        )
+        if n_sample == -1:
+            self.titles, self.articles = zip(*tqdm(data))
+        else:
+            self.titles, self.articles = zip(*tqdm(data[:n_sample]))
         conn.close()
 
     def __getitem__(self, index: int):

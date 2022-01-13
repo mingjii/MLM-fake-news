@@ -72,7 +72,7 @@ class TransformerModel(nn.Module):
         )
 
         self.emb = nn.Embedding(
-            num_embeddings=tknzr.vocab_size(),
+            num_embeddings=tknzr.vocab_size,
             embedding_dim=d_hid,
             padding_idx=tknzr.pad_tkid,
         )

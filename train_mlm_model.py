@@ -26,7 +26,6 @@ def main():
     parser.add_argument('--warmup_step', required=True, type=int)
     parser.add_argument('--step_size', required=True, type=int)
     parser.add_argument('--lr', required=True, type=float)
-    parser.add_argument('--max_seq_len', required=True, type=int)
     parser.add_argument('--n_hid_lyr', required=True, type=int)
     parser.add_argument('--n_epoch', required=True, type=int)
     parser.add_argument('--n_head', required=True, type=int)
@@ -34,12 +33,13 @@ def main():
     parser.add_argument('--d_ff', required=True, type=int)
     parser.add_argument('--d_hid', required=True, type=int)
     parser.add_argument('--p_hid', required=True, type=float)
+    parser.add_argument('--max_seq_len', required=True, type=int)
     parser.add_argument('--log_step', required=True, type=int)
     parser.add_argument('--seed', required=True, type=int)
     parser.add_argument('--beta1', required=True, type=float)
     parser.add_argument('--beta2', required=True, type=float)
     parser.add_argument('--eps', required=True, type=float)
-    parser.add_argument('--max_norm', required=True, type=float)
+    # parser.add_argument('--max_norm', required=True, type=float)
     parser.add_argument('--wd', required=True, type=float)
     args = parser.parse_args()
 
@@ -53,6 +53,7 @@ def main():
     util.seed.set_seed(seed=args.seed)
 
     # Load dataset and dataset config.
+    print("load data....")
     dset = MLMDataset(exp_name=args.dataset_exp_name, n_sample=args.n_sample)
     dset_cfg = util.cfg.load(exp_name=args.dataset_exp_name)
 
@@ -68,6 +69,7 @@ def main():
         return batch_mask_tkids, batch_target_tkids, batch_is_mask
 
     # Create data loader.
+    print("initialize dataloader....")
     dldr = torch.utils.data.DataLoader(
         dset,
         batch_size=args.batch_size,
@@ -85,6 +87,7 @@ def main():
         device = torch.device('cuda')
 
     # Load model.
+    print("initialize model....")
     model = MODEL_OPT[args.model](tknzr=tknzr, **args.__dict__)
     model = model.train()
 
@@ -119,9 +122,7 @@ def main():
     )
 
     # Loggin.
-    log_path = os.path.join(util.path.LOG_PATH, args.exp_name)
-    if not os.path.exists(log_path):
-        os.makedirs(log_path)
+    log_path = os.path.join(util.path.EXP_PATH, args.exp_name)
     writer = SummaryWriter(log_dir=log_path)
 
     # Log performance.
@@ -136,6 +137,7 @@ def main():
 
     # Load checkpoint
     if args.checkpoint:
+        print("load checkpoint model....")
         checkpoint = torch.load(args.checkpoint)
         model.load_state_dict(checkpoint['model'])
         optim.load_state_dict(checkpoint['optimizer'])
@@ -149,25 +151,27 @@ def main():
             desc=f'epoch: {epoch}, loss: {avg_loss:.6f}',
         )
         for batch_mask_tkids, batch_target_tkids, batch_is_mask in tqdm_dldr:
-            batch_mask_tkids = torch.LongTensor(batch_mask_tkids)
-            batch_target_tkids = torch.LongTensor(batch_target_tkids)
-            batch_is_mask = torch.FloatTensor(batch_is_mask)
+            batch_mask_tkids = torch.LongTensor(batch_mask_tkids).to(device)
+            batch_target_tkids = torch.LongTensor(batch_target_tkids).to(device)
+            batch_is_mask = torch.FloatTensor(batch_is_mask).to(device)
 
             loss = model.loss_fn(
-                batch_mask_tkids=batch_mask_tkids.to(device),
-                batch_target_tkids=batch_target_tkids.to(device),
-                batch_is_mask=batch_is_mask.to(device),
+                batch_mask_tkids=batch_mask_tkids,
+                batch_target_tkids=batch_target_tkids,
+                batch_is_mask=batch_is_mask,
             )
+            # tqdm_dldr.set_description(
+            #             f'epoch: {epoch}, loss: {loss.item():.6f}'
+            #         )
             avg_loss += loss.item() / accumulation_steps
-
             loss.backward()
 
             accumulation_count += 1
             if accumulation_count == accumulation_steps:
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(),
-                    max_norm=args.max_norm,
-                )
+                # torch.nn.utils.clip_grad_norm_(
+                #     model.parameters(),
+                #     max_norm=args.max_norm,
+                # )
                 optim.step()
                 optim.zero_grad()
                 step += 1
@@ -222,3 +226,32 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
+"""
+CUDA_VISIBLE_DEVICES=1 \
+python train_mlm_model.py \
+    --model transformer \
+    --exp_name mlm_2M_l6 \
+    --dataset_exp_name mask_data_merged_2M_1 \
+    --batch_size 8 \
+    --save_step 10000 \
+    --warmup_step 5000 \
+    --step_size 128 \
+    --lr 1e-4 \
+    --n_hid_lyr 6 \
+    --n_epoch 30 \
+    --n_head 8 \
+    --n_sample 1000000 \
+    --max_seq_len 400 \
+    --d_ff 2048 \
+    --d_hid 512 \
+    --p_hid 0.1 \
+    --log_step 20 \
+    --seed 2022 \
+    --beta1 0.9 \
+    --beta2 0.999 \
+    --eps 1e-08\
+    --wd 0.01 
+"""
