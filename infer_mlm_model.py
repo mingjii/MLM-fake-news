@@ -9,8 +9,9 @@ import tokenizer
 import html
 import util.cfg
 import util.seed
+import util.dist
 from model import MODEL_OPT
-from dataset.mlm import MLMDataset
+from dataset import DSET_OPT
 from tokenizer import TKNZR_OPT
 
 
@@ -20,6 +21,9 @@ def main():
     parser.add_argument('--exp_name', required=True, type=str)
     parser.add_argument('--k', required=True, type=int)
     parser.add_argument('--seed', required=True, type=int)
+    parser.add_argument('--p_mask', required=False, default=0.15, type=float)
+    parser.add_argument('--p_len', required=False, default=0.1, type=float)
+    parser.add_argument('--max_span_len', required=False, default=9, type=int)
     # parser.add_argument('--src', required=True, action='append')
     args = parser.parse_args()
 
@@ -28,25 +32,95 @@ def main():
     exp_cfg = util.cfg.load(exp_name=args.exp_name)
 
     # Load dataset and dataset config.
-    dset = MLMDataset(exp_name=exp_cfg.dataset_exp_name,
-                      n_sample=exp_cfg.n_sample)
+    dset = DSET_OPT[exp_cfg.dataset_type](
+        exp_cfg.dataset_exp_name, 10000
+    )
 
-    dset_cfg = util.cfg.load(exp_name=exp_cfg.dataset_exp_name)
+    # dset_cfg = util.cfg.load(exp_name=exp_cfg.dataset_exp_name)
 
     # Load tokenizer and config.
-    tknzr_cfg = util.cfg.load(exp_name=dset_cfg.tknzr_exp_name)
-    tknzr = TKNZR_OPT[tknzr_cfg.tknzr].load(exp_name=tknzr_cfg.exp_name)
+    tknzr_cfg = util.cfg.load(exp_name=exp_cfg.tknzr_exp_name)
+    tknzr = TKNZR_OPT[tknzr_cfg.tknzr](exp_name=tknzr_cfg.exp_name)
+    sp_tkids = [tknzr.cls_tkid, tknzr.sep_tkid, tknzr.pad_tkid]
 
-    batch_mask_tkids = []
-    batch_target_tkids = []
-    batch_is_mask = []
-    for i in [1, 1001, 2001, 3001, 4001]:
-        (mask_tkids, target_tkids, is_mask) = dset[i]
-        batch_mask_tkids.append(mask_tkids)
-        batch_target_tkids.append(target_tkids)
-        batch_is_mask.append(is_mask)
+    # batch_mask_tkids = []
+    # batch_target_tkids = []
+    # batch_is_mask = []
+    # for i in [1, 1001, 2001, 3001, 4001]:
+    #     (mask_tkids, target_tkids, is_mask) = dset[i]
+    #     batch_mask_tkids.append(mask_tkids)
+    #     batch_target_tkids.append(target_tkids)
+    #     batch_is_mask.append(is_mask)
+    def collate_fn(batch):
+        batch_mask_tkids = []
+        batch_target_tkids = []
+        batch_is_mask = []
+        for title, article in batch:
+            target_tkids = tknzr.enc(
+                txt=title,
+                txt_pair=article,
+                max_seq_len=exp_cfg.max_seq_len
+            )
 
-    model, _ = MODEL_OPT[exp_cfg.model].load(
+            mask_tkids = []
+            is_mask = []
+            mask_span_count = 0
+            while sum(is_mask) == 0:
+                mask_tkids = []
+                is_mask = []
+                mask_span_count = 0
+                for tkid in target_tkids:
+                    mask_span_count -= 1
+
+                    # Masking no more than args.p_mask x 100% tokens.
+                    if sum(is_mask) / len(target_tkids) >= args.p_mask:
+                        mask_tkids.append(tkid)
+                        is_mask.append(0)
+                        continue
+
+                    # Skip masking if current token is special token.
+                    if tkid in sp_tkids:
+                        mask_tkids.append(tkid)
+                        is_mask.append(0)
+                        continue
+
+
+                    # Mask current token based on masking distribution.
+                    if util.dist.mask(p=args.p_mask):
+                        # Record how many tokens to be mask (span masking).
+                        mask_span_count = util.dist.length(
+                            p=args.p_len,
+                            max_span_len=args.max_span_len
+                        )
+                        mask_tkids.append(tknzr.mask_tkid)
+                        is_mask.append(1)
+                        continue
+
+                    # Skip masking current token.
+                    mask_tkids.append(tkid)
+                    is_mask.append(0)
+            batch_is_mask.append(is_mask)
+            batch_mask_tkids.append(mask_tkids)
+            batch_target_tkids.append(target_tkids)
+            # for x,y in zip(is_mask, mask_tkids):
+            #     if x==1 and y!= tknzr.mask_tkid:
+            #         raise Exception('masking errror')
+
+        return batch_mask_tkids, batch_target_tkids, batch_is_mask
+
+    # Create data loader.
+    print("initialize dataloader....")
+    dldr = torch.utils.data.DataLoader(
+        dset,
+        batch_size=5,
+        shuffle=True,
+        collate_fn=collate_fn,
+        num_workers=len(os.sched_getaffinity(0)),
+    )
+    
+    # Load model
+    print("loading model....")
+    model, model_state = MODEL_OPT[exp_cfg.model].load(
         ckpt=args.ckpt,
         tknzr=tknzr,
         **exp_cfg.__dict__,
@@ -58,7 +132,10 @@ def main():
         device = torch.device('cuda')
 
     model = model.to(device)
-
+    # for x in dldr:
+    #     pass
+    # exit()
+    batch_mask_tkids, batch_target_tkids, batch_is_mask = next(iter(dldr))
     batch_mask_tkids = torch.LongTensor(batch_mask_tkids).to(device)
     batch_target_tkids = torch.LongTensor(batch_target_tkids).to(device)
     batch_is_mask = torch.BoolTensor(batch_is_mask).to(device)
@@ -100,13 +177,17 @@ def main():
         batch_target_tkids
     )
 
-    out_tks = tknzr.batch_dec(out_ids.tolist(), rm_sp_tks=False)
+    # out_tks = tknzr.batch_dec(out_ids.tolist(), rm_sp_tks=False)
 
-    ori_out_tks = tknzr.batch_dec(
-        batch_pred_tkid.squeeze().tolist(), rm_sp_tks=False)
+    # ori_out_tks = tknzr.batch_dec(
+    #     batch_pred_tkid.squeeze().tolist(), rm_sp_tks=False)
 
-    mask_tks = tknzr.batch_dec(batch_mask_tkids.tolist(), rm_sp_tks=False)
-    target_tks = tknzr.batch_dec(batch_target_tkids.tolist(), rm_sp_tks=False)
+    # mask_tks = tknzr.batch_dec(batch_mask_tkids.tolist(), rm_sp_tks=False)
+    # target_tks = tknzr.batch_dec(batch_target_tkids.tolist(), rm_sp_tks=False)
+    out_tks = [tknzr.ids_to_tokens(x) for x in out_ids.tolist()]
+    ori_out_tks = [tknzr.ids_to_tokens(x) for x in batch_pred_tkid.squeeze().tolist()]
+    mask_tks = [tknzr.ids_to_tokens(x) for x in batch_mask_tkids.tolist()]
+    target_tks = [tknzr.ids_to_tokens(x) for x in batch_target_tkids.tolist()]
     # print("Inference:")
     # print('<div style="border: 2px solid black; display:grid; grid-template-columns: 1fr 1fr 1fr ">')
     # print('<div style="border: 1px solid black;">input</div>')
@@ -118,12 +199,12 @@ def main():
     count = 0
     print('<table>')
     for text, target, pred, ori_pred in zip(mask_tks, target_tks, out_tks, ori_out_tks):
-        l_text = tknzr.tknz(text)
-        l_target = tknzr.tknz(target)
-        l_pred = tknzr.tknz(pred)
-        l_ori_pred = tknzr.tknz(ori_pred)
+        # l_text = tknzr.tknz(text)
+        # l_target = tknzr.tknz(target)
+        # l_pred = tknzr.tknz(pred)
+        # l_ori_pred = tknzr.tknz(ori_pred)
         print('<tr><th>text</th><th>target</th><th>pred</th><th>ori_pred</th></tr>')
-        for a, b, c, d in zip(l_text, l_target, l_pred, l_ori_pred):
+        for a, b, c, d in zip(text, target, pred, ori_pred):
             if b != "<pad>":
                 count += 1
                 if b == d:
@@ -161,8 +242,8 @@ if __name__ == '__main__':
 
 """
 CUDA_VISIBLE_DEVICES=0 python infer_mlm_model.py \
-    --ckpt 200000 \
-    --exp_name n10_m7_p10_v2.3 \
+    --ckpt 90000 \
+    --exp_name mlm_2M_l12 \
     --k 1 \
-    --seed 42 >>alldata.html
+    --seed 42 >alldata.html
 """

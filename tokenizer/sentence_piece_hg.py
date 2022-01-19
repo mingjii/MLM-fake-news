@@ -107,6 +107,12 @@ class Tknzr_sentPiece:
         # Decode each sequence of token ids in the batch.
         return [self.dec(tkids, rm_sp_tks=rm_sp_tks) for tkids in batch_tkids]
 
+    def ids_to_tokens(
+        self,
+        ids: List[int],
+    ) -> List[str]:
+        return list(map(lambda x: self.processor.id_to_token(x), ids))
+
     @classmethod
     def train(
         cls,

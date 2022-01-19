@@ -1,7 +1,7 @@
-from dataset.news import Seq2SeqNewsDataset
+from dataset.news import NewsDataset
 from dataset.mlm import MLMDataset
 
 DSET_OPT = {
-    Seq2SeqNewsDataset.dset_name: Seq2SeqNewsDataset,
+    NewsDataset.dset_name: NewsDataset,
     MLMDataset.dset_name: MLMDataset
 }

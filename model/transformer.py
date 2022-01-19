@@ -259,6 +259,7 @@ class TransformerModel(nn.Module):
         self = cls(**kwargs)
 
         # Load pre-trained parameters.
-        self.load_state_dict(torch.load(file_path))
+        checkpoint_state = torch.load(file_path)
+        self.load_state_dict(checkpoint_state['model'])
 
-        return self, ckpt
+        return self, checkpoint_state

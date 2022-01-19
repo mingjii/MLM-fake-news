@@ -6,7 +6,7 @@ from tqdm import tqdm
 import util.path
 
 
-class Seq2SeqNewsDataset(torch.utils.data.Dataset):
+class NewsDataset(torch.utils.data.Dataset):
     r"""
     Dataset for seq2seq models.
     return a tuple contain title and article as below format
@@ -40,15 +40,20 @@ class Seq2SeqNewsDataset(torch.utils.data.Dataset):
         #         break
         #     self.titles.append(title)
         #     self.articles.append(article)
-        data = list(
-            cursor.execute(
-                'SELECT title, article from parsed_news;'
-            )
-        )
         if n_sample == -1:
-            self.titles, self.articles = zip(*tqdm(data))
+            data = list(
+                cursor.execute(
+                    'SELECT title, article from parsed_news;'
+                )
+            )
         else:
-            self.titles, self.articles = zip(*tqdm(data[:n_sample]))
+            data = list(
+                cursor.execute(
+                    f'SELECT title, article from parsed_news LIMIT 0, {n_sample};'
+                )
+            )
+        
+        self.titles, self.articles = zip(*tqdm(data))
         conn.close()
 
     def __getitem__(self, index: int):

@@ -12,7 +12,7 @@ import util.dist
 import util.seed
 from model import MODEL_OPT
 # from dataset import MLMDataset
-# from dataset import Seq2SeqNewsDataset
+# from dataset import NewsDataset
 from dataset import DSET_OPT
 from tokenizer import TKNZR_OPT
 
@@ -26,7 +26,7 @@ def main():
     parser.add_argument('--dataset_exp_name', required=True, type=str)
     parser.add_argument('--tknzr_exp_name', required=True, type=str)
     parser.add_argument('--p_mask', required=False, default=0.15, type=float)
-    parser.add_argument('--p_len', required=False, default=0.2, type=float)
+    parser.add_argument('--p_len', required=False, default=0.1, type=float)
     parser.add_argument('--checkpoint', required=False, default=None, type=str)
     parser.add_argument('--batch_size', required=True, type=int)
     parser.add_argument('--save_step', required=True, type=int)
@@ -41,7 +41,7 @@ def main():
     parser.add_argument('--d_hid', required=True, type=int)
     parser.add_argument('--p_hid', required=True, type=float)
     parser.add_argument('--max_seq_len', required=True, type=int)
-    parser.add_argument('--max_span_len', required=False, default=5, type=int)
+    parser.add_argument('--max_span_len', required=False, default=9, type=int)
     parser.add_argument('--log_step', required=True, type=int)
     parser.add_argument('--seed', required=True, type=int)
     parser.add_argument('--beta1', required=True, type=float)
@@ -134,7 +134,7 @@ def main():
         collate_fn=collate_fn,
         num_workers=len(os.sched_getaffinity(0)),
     )
-
+    # return dldr
     device = torch.device('cpu')
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -291,23 +291,23 @@ if __name__ == '__main__':
 
 """
 CUDA_VISIBLE_DEVICES=1 \
-python train_mlm_model.py \
+python -i train_mlm_model.py \
     --model transformer \
     --exp_name mlm_2M_l12 \
     --dataset_type news \
     --dataset_exp_name merged_cna_ettoday_storm.db \
     --tknzr_exp_name tknzr_sentPiece_3w5 \
-    --batch_size 15 \
-    --save_step 15000 \
+    --batch_size 16 \
+    --save_step 10000 \
     --warmup_step 10000 \
-    --step_size 120 \
+    --step_size 128 \
     --lr 1e-4 \
     --n_hid_lyr 12 \
-    --n_epoch 15 \
+    --n_epoch 20 \
     --n_head 8 \
     --n_sample -1 \
     --max_seq_len 400 \
-    --d_ff 2048 \
+    --d_ff 1024 \
     --d_hid 512 \
     --p_hid 0.1 \
     --log_step 10 \
